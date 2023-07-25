@@ -1,0 +1,611 @@
+---
+title: "Metabolite Shifts Influenced By Changes in Nutrient Availability: PERI-FIX"
+author: "Iris Kern"
+date: "2023-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(xcms)
+library(ggplot2)
+library(RaMS)
+library(data.table)
+library(readr)
+library(rstatix)
+library(RColorBrewer)
+library(vegan)
+library(dendextend)
+library(factoextra)
+library(broom)
+library(purrr)
+library(plotly)
+```
+
+The data analyzed here includes metabolomics data measured by the Ingalls Laboratory at UW. The data processing involved running raw files through XCMS in R and then selecting for the compounds most likely to be real signals rather than noise by use of a model developed by William Kumler. The values explored in this initial data analysis are integrated peak areas, calculated directly from the chromatograms of each metabolite. Overall trends observed are a general enrichment of many metabolites in all nitrogen-containing treatments, that correlates with the diatom blooms in most treatments. This also is supported by the die-off of diatoms in the NP treatment, as that treatment has the lowest amount of metabolite enrichment of all the nitrogen-containing treatments. Another trend to point out is the difference in metabolite composition of T0 compared to the control. This might be associated with the prochlorococcus present at the beginning of the experiment, which is represented in the T0 metabolite composition. 
+
+```{r}
+fls <- list.files('../../mzMLs/pos', full.names = TRUE)
+fls <- as.data.frame(fls) %>% 
+  filter(!str_detect(fls, "DDA"))
+
+metadataframe <- fls %>%
+  # Grab just the unique filenames and rename the column
+  distinct(filename=`fls`) %>%
+  # Create a new column with sample type information
+  mutate(samp_type=str_extract(filename, "Blk|Smp|Std|Poo")) %>%
+  # Create a new column with timepoint information (either Tfinal or T0)
+  mutate(timepoint=str_extract(filename, "Tfinal|T0")) %>%
+  # Extract treatment information from the filename
+  # Longest one needs to go first!
+  mutate(treatment=str_extract(filename, "NPF|NF|PF|NP|N|P|F|C")) %>%
+  # Replace accidental "P" treaments from "Pooled" with NAs
+  mutate(treatment=ifelse(samp_type=="Poo", NA, treatment)) %>% 
+  mutate(colid = str_extract(filename, "Std|Poo|Blk|NPF|NF|PF|NP|N|P|F|C|Tote"))
+  # mutate(colid=(levels=c("Std", "Poo", "Blk", "NPF", "NF", "PF", "NP", "N", "P", "F", "C", "Tote")))
+
+msnexp_withpeaks <- readRDS('msnexp_withpeaks.rds')
+msnexp_filled <- readRDS('msnexp_filled.rds')
+
+set.seed(20)
+```
+
+```{r}
+msdata <- msnexp_filled %>%
+  fileNames() %>%
+  str_subset("Smp") %>%
+  grabMSdata(verbosity = 0)
+```
+
+```{r}
+peak_data_long <- msnexp_filled %>%
+  chromPeaks() %>%
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  mutate(peakidx=row_number())
+peak_data <- msnexp_filled %>%
+  featureDefinitions() %>%
+  as.data.frame() %>%
+  select(mzmed, rtmed, npeaks, peakidx) %>%
+  rownames_to_column("id") %>%
+  unnest_longer(peakidx) %>%
+  rename_with(~paste0("feat_", .x), .cols = -peakidx) %>%
+  left_join(peak_data_long) %>%
+  mutate(filename=basename(fileNames(msnexp_filled))[sample]) %>% 
+  left_join(metadataframe %>% mutate(filename=basename(filename))) %>%
+  filter(samp_type=="Smp")
+```
+
+```{r}
+good_peaks <- read_csv('chosen_feats.csv')
+
+peak_data_filtered <- peak_data %>% 
+  filter(samp_type=="Smp") %>% 
+  select(compound = feat_id, filename, area = into, mz, rt, treatment) %>% 
+  filter(compound%in%good_peaks$feature) %>%
+  group_by(compound, filename) %>%
+  mutate(n=n()) %>%
+  group_by(compound) %>%
+  filter(all(n==1)) %>%
+  ungroup() %>%
+  complete(compound, filename, fill=list(area=0)) %>%
+  select(-n) 
+```
+
+```{r}
+biggest_peaks_all <- peak_data %>% 
+  arrange(desc(into)) %>%
+  mutate(feat_id=ifelse(feat_id%in%unique(feat_id)[1:10], feat_id, "Other")) %>%
+  mutate(feat_id=factor(feat_id, levels=unique(feat_id))) %>%
+  group_by(feat_id, treatment) %>%
+  summarise(into=sum(into)) %>%
+  drop_na()
+
+biggest_peaks_good <- peak_data_filtered %>%
+  arrange(desc(area)) %>%
+  mutate(compound=ifelse(compound%in%unique(compound)[1:10], compound, "Other")) %>%
+  mutate(compound=factor(compound, levels=unique(compound))) %>%
+  group_by(compound, treatment) %>%
+  summarise(area=sum(area)) %>%
+  drop_na()
+```
+
+```{r}
+peri_mat <- peak_data_filtered %>%
+  mutate(filename=str_remove(filename, "230213_Smp_")) %>%
+  group_by(compound) %>%
+  mutate(norm_area=rank(area)) %>%
+  pivot_wider(id_cols = filename, names_from = "compound", values_from = "norm_area") %>%
+  column_to_rownames("filename") %>%
+  data.matrix()
+```
+
+```{r}
+mdsout <- peri_mat %>%
+  metaMDS(k = 2, autotransform = FALSE, trace = 0)
+
+metadataframe <- metadataframe %>% 
+  mutate(filename=str_remove(filename, "../../mzMLs/pos/230213_Smp_"))
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("filename") %>%
+  left_join(metadataframe) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"#dbd9db",
+    treatment=="F"~"#c33225",
+    treatment=="P"~"#f8dc69",
+    treatment=="PF"~"#f49c14",
+    treatment=="N"~"#abdfc1",
+    treatment=="NP"~"#87c1ea",
+    treatment=="NF"~"#29ad61",
+    treatment=="NPF"~"#2a7fba", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id), size=4) +
+  scale_color_identity(name = "Treatment",
+                       guide = "legend", 
+                       labels = c("Nitrogen + Iron", "Nitrogen + Phosphorus + Iron", "Nitrogen + Phosphorus", "Nitrogen", "Iron", "Control", "Phosphorus + Iron", "Phosphorus", "Tote")) + 
+  theme_bw()
+```
+
+NMDS Plot of all untargeted data run through XCMS. This plot shows a grouping of the nitrogen containing treatments together in the bottom right corner, with the non-nitrogen containing treatments varying across the space leaning towards the top left. The data in this figure was rank-normalized.
+
+```{r}
+nb.cols <- 10
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+
+mycolors <- c(mycolors, "gray60")
+```
+
+```{r}
+# biggest_peaks_good %>% 
+#   group_by(treatment) %>%
+#   mutate(mean_area = mean(area)) %>% 
+#   ggplot() +
+#   geom_boxplot(aes(x=treatment, y=mean_area, fill = compound), width = 0.5, 
+#            position = "stack") + 
+#   geom_point(aes(x=treatment, y=area)) + 
+#   scale_fill_manual(values = mycolors) +
+#   ggtitle("Summed Metabolite Peak Area in Filtered Good Peak Dataset") + 
+#   theme_bw() + 
+#   theme(legend.position = "none")
+```
+
+```{r}
+biggest_peaks_good %>% 
+  group_by(treatment) %>%
+  mutate(mean_area = mean(area)) %>% 
+  mutate(sum_area = sum(mean_area)) %>% 
+  distinct(sum_area) %>% 
+  ggplot() +
+  geom_col(aes(x=treatment, y = sum_area), width = 0.5, 
+           position = "stack") +
+  scale_fill_manual(values = mycolors) +
+  ggtitle("Summed Metabolite Peak Area in Filtered Good Peak Dataset") + 
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+The summed metabolite peak areas for each treatment group. This plot shows a higher summed microbial peak area in the nitrogen-containing treatments, with NP having the lowest values of the nitrogen treatments, and the control being the lowest of all others. This figure represents the overall trends across each treatment group and shows the absolute changes in metabolite composition considering changes in nutrient input.
+
+```{r}
+peak_data_numeric <- peak_data_filtered %>% 
+  mutate(treatment = gsub("230213_Smp_Tfinal", "", filename)) %>%
+  mutate(treatment = gsub(".mzML", "", treatment)) %>% 
+  mutate(treatment = gsub("230213_Smp_T0", "", treatment)) %>% 
+  mutate(compound_numeric = gsub("FT", "", compound)) %>%
+  mutate(compound_numeric = as.numeric(compound_numeric)) %>%
+  select("treatment", "area", "compound_numeric")
+
+peak_data_numeric <- peak_data_numeric %>% 
+  pivot_wider(names_from = treatment, values_from = area) %>% 
+  remove_rownames %>% 
+  column_to_rownames(var = "compound_numeric")
+
+peak_data_scaled <- t(scale(t(peak_data_numeric)))
+
+peak_data_numeric_abun <- peak_data_filtered %>% 
+  mutate(treatment = gsub("230213_Smp_Tfinal", "", filename)) %>%
+  mutate(treatment = gsub(".mzML", "", treatment)) %>% 
+  mutate(treatment = gsub("230213_Smp_T0", "", treatment)) %>% 
+  mutate(compound_numeric = gsub("FT", "", compound)) %>%
+  mutate(compound_numeric = as.numeric(compound_numeric)) %>%
+  select("treatment", "area", "compound_numeric") %>% 
+  filter(area >= 1e+08)
+
+peak_data_numeric_abun_wide <- peak_data_numeric_abun %>% 
+  pivot_wider(names_from = treatment, values_from = area) %>% 
+  remove_rownames %>% 
+  column_to_rownames(var = "compound_numeric") %>% 
+  mutate_all(~replace_na(.,0))
+
+peak_data_scaled_abun <- t(scale(t(peak_data_numeric_abun_wide)))
+```
+
+```{r}
+peak_filtered_km <- kmeans(peak_data_scaled, centers = 6, nstart = 25)
+
+table(peak_filtered_km$cluster)
+
+peak_clusters <- as.data.frame(peak_filtered_km$cluster) %>% 
+  dplyr::rename(cluster = `peak_filtered_km$cluster`) 
+```
+
+```{r}
+peak_data_numeric_vis <- peak_data_numeric %>% 
+  mutate(cluster = as.character(peak_filtered_km$cluster)) %>% 
+  mutate(row_names = row.names(peak_data_numeric)) %>% 
+  mutate(id = row_number()) %>% 
+  remove_rownames %>% 
+  column_to_rownames(var = "id") %>% 
+  dplyr::rename(compound = row_names)
+
+peak_data_km_vis <- peak_data_numeric_vis %>% 
+  pivot_longer(
+    cols = c("Tote_1", "Tote_2", "Tote_3", "Tote_4", "C_1", "C_2", "C_3", "N_1", "N_2",
+             "N_3", "F_1", "F_2", "F_3", "NF_1", "NF_2", "NF_3", "NP_1", "NP_2", "NP_3",
+             "NPF_1", "NPF_2", "NPF_3", "P_1", "P_2", "P_3", "PF_1", "PF_2", "PF_3"),
+    names_to = "treatment", values_to = "area") %>% 
+  left_join(peak_data_filtered, by = "area") %>% 
+  select(-c("treatment.y", "compound.y")) %>% 
+  dplyr::rename(treatment = treatment.x) %>% 
+  dplyr::rename(compound = compound.x)
+
+```
+
+```{r}
+plotly <- peak_data_km_vis %>%
+  group_by(compound) %>% 
+  mutate(mean_area = mean(area)) %>% 
+  filter(area >= 1e+08) %>% 
+  ggplot(aes(compound, treatment, size = area, color = cluster)) +
+  geom_point() +
+  theme_bw() + 
+  ggtitle("Peak Area of Unknown Metabolites Across Varying Environmental Conditions") + 
+  ylab("Added Nutrients and Replicate ID") + 
+  xlab("Metabolite ID") + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1), plot.title = element_text(size = 11)) + 
+  scale_color_manual(values = c("indianred4", "lightsalmon3", "lightsteelblue3", "skyblue", 
+                                "steelblue4", "springgreen4", "olivedrab", "pink1", 
+                                "plum3", "mediumpurple4", "lightgoldenrod3", "darkgoldenrod3")) + 
+  theme(legend.position = "none")
+ggplotly(plotly)
+```
+
+Dot plot of metabolites with peak areas of greater than 1e+08, colored using k-means clusters. Size of dots correlates with relative peak area of metabolite. Link to full size interactive plotly: https://rpubs.com/iriskern/1048975. Metabolite ID corresponds with an unidentified feature (metabolite). This untargeted approach requires more steps to identify known compounds within the metabolites identified, but also provides an opportunity to understand on a broader scale the impact these different nutrient additions have on the larger metabolome, regardless of metabolite identity. Additionally, some metabolites of interest that do not match known standards are most likely novel compounds, that could provide novel insight into the full scope of influence these nutrients have on microbial communities. 
+
+```{r}
+peak_data_abun_filt <- peak_data_km_vis %>% 
+  group_by(compound, treatment) %>% 
+  mutate(mean_area = mean(area)) %>% 
+  select(-c("filename", "cluster", "mz", "rt")) %>% 
+  mutate(treatment = str_remove(treatment, "_\\d$")) %>% 
+  group_by(treatment, compound) %>% 
+  mutate(area_mean_treatment = mean(area)) %>% 
+  ungroup()
+```
+
+```{r}
+foldchange <- data.frame(compound = character(), treatment = character(), pval = numeric(), fc = numeric())
+
+for (compound in unique(peak_data_abun_filt$compound)) {
+  for (group in unique(peak_data_abun_filt$treatment)) {
+    if (group != 'Tote') {
+      temp <- peak_data_abun_filt[peak_data_abun_filt$compound == compound,]
+      # temp <- temp[temp$treatment == group,]
+      
+      pval <- t.test(temp[temp$treatment == 'Tote',]$area,
+                     temp[temp$treatment == group,]$area)$p.value
+      fc <- (log2(mean(temp[temp$treatment == group,]$area) + 1) - 
+               log2(mean(temp[temp$treatment == 'Tote',]$area) + 1))
+      
+      new_row <- data.frame(compound = compound, treatment = group, pval = pval, fc = fc)
+      foldchange <- rbind(foldchange, new_row)
+    }
+  }
+}
+```
+
+```{r}
+foldchange_control <- data.frame(compound = character(), treatment = character(), pval = numeric(), fc = numeric())
+
+for (compound in unique(peak_data_abun_filt$compound)) {
+  for (group in unique(peak_data_abun_filt$treatment)) {
+    if (group != 'C') {
+      temp <- peak_data_abun_filt[peak_data_abun_filt$compound == compound,]
+      # temp <- temp[temp$treatment == group,]
+      
+      pval <- t.test(temp[temp$treatment == 'C',]$area,
+                     temp[temp$treatment == group,]$area)$p.value
+      fc <- (log2(mean(temp[temp$treatment == group,]$area) + 1) - 
+               log2(mean(temp[temp$treatment == 'C',]$area) + 1))
+      
+      new_row <- data.frame(compound = compound, treatment = group, pval = pval, fc = fc)
+      foldchange_control <- rbind(foldchange_control, new_row)
+    }
+  }
+}
+```
+
+```{r}
+# foldchange_control %>%
+#   mutate(pval = -log10(pval)) %>% 
+#   filter(treatment != "Tote") %>% 
+#   mutate(col_id = case_when(
+#     treatment == "C"~"#dbd9db",
+#     treatment == "F"~"#c33225",
+#     treatment == "P"~"#f8dc69",
+#     treatment == "PF"~"#f49c14",
+#     treatment == "N"~"#abdfc1",
+#     treatment == "NP"~"#87c1ea",
+#     treatment == "NF"~"#29ad61",
+#     treatment == "NPF"~"#2a7fba",
+#     TRUE~"gray50"
+#   )) %>%
+#   ggplot() +
+#   geom_point(aes(x = fc, y = pval, color = col_id)) +
+#   scale_color_identity(name = "Treatment",
+#                        guide = "legend",
+#                        labels = c("Nitrogen + Iron",
+#                                   "Nitrogen + Phosphorus",
+#                                   "Nitrogen + Phosphorus + Iron",
+#                                   "Nitrogen", "Iron",
+#                                   "Phosphorus + Iron",
+#                                   "Phosphorus", "Tote")) +
+#   theme_bw() +
+#   xlim(-6, 6) +
+#   xlab("Log2(Fold-Change)") +
+#   ylab("-Log10(p-value)") +
+#   ggtitle("fold change calculated with respect to control group")
+
+# Fold change calculated with respect to the control, with a log10 scaled y-axis and a log2 scaled x-axis. This plot shows additional differentiation of the nitrogen-containing groups from the other treatments, grouping towards the positive maximum on the x-axis exhibiting an increased metabolite peak area in those samples, compared to the control. 
+```
+
+```{r}
+# foldchange %>%
+#   mutate(pval = -log10(pval)) %>%
+#   filter(treatment != "C") %>% 
+#   mutate(col_id = case_when(
+#     treatment == "C"~"#dbd9db",
+#     treatment == "F"~"#c33225",
+#     treatment == "P"~"#f8dc69",
+#     treatment == "PF"~"#f49c14",
+#     treatment == "N"~"#abdfc1",
+#     treatment == "NP"~"#87c1ea",
+#     treatment == "NF"~"#29ad61",
+#     treatment == "NPF"~"#2a7fba"
+#   )) %>%
+#   ggplot() +
+#   geom_point(aes(x = fc, y = pval, color = col_id)) +
+#   scale_color_identity(name = "Treatment",
+#                        guide = "legend",
+#                        labels = c("Nitrogen + Iron", "Nitrogen + Phosphorus + Iron", "Nitrogen + Phosphorus", "Nitrogen", "Iron", "Phosphorus + Iron", "Phosphorus")) +
+#   theme_bw() +
+#   xlim(-6, 6) +
+#   xlab("Log2(Fold-Change)") +
+#   ylab("-Log10(p-value)") +
+#   ggtitle("Fold change calculated with respect to T0")
+
+# Fold change calculated versus T0. There is less clear grouping of the nitrogen-containing treatments to the right of the graph compared to the control fold change, but there is still a trend. There are multiple metabolites grouped in the right side of the graph that have a significantly higher peak area in the nitrogen-added treatments.
+```
+
+```{r}
+peak_data_abun_filt_n <- peak_data_abun_filt %>% 
+  filter(treatment != "T0") %>% 
+  group_by(compound, treatment) %>% 
+  mutate(mean_area = mean(area)) %>% 
+  distinct(mean_area) %>% 
+  mutate(pval_cat = str_detect(treatment, "N"))
+
+  
+foldchange_n <- data.frame(compound = character(), pval = numeric(), fc = numeric())
+
+for (compound in unique(peak_data_abun_filt_n$compound)) {
+    fc_calc_n <- peak_data_abun_filt_n[peak_data_abun_filt_n$compound == compound,]
+    
+    t_test_x <- fc_calc_n[fc_calc_n$pval_cat,]$mean_area
+    t_test_y <- fc_calc_n[fc_calc_n$pval_cat == FALSE,]$mean_area
+    
+    pval <- t.test(t_test_x, t_test_y)$p.value
+    fc <- (log2(mean(t_test_x) + 1) -
+             log2(mean(t_test_y) + 1)) 
+    new_row <- data.frame(compound = compound, pval = pval, fc = fc)
+    foldchange_n <- rbind(foldchange_n, new_row)
+}
+```
+
+```{r}
+peak_data_abun_filt_f <- peak_data_abun_filt %>% 
+  filter(treatment != "T0") %>% 
+  group_by(compound, treatment) %>% 
+  mutate(mean_area = mean(area)) %>% 
+  distinct(mean_area) %>% 
+  mutate(pval_cat = str_detect(treatment, "F"))
+
+  
+foldchange_f <- data.frame(compound = character(), pval = numeric(), fc = numeric())
+
+for (compound in unique(peak_data_abun_filt_f$compound)) {
+    fc_calc_f <- peak_data_abun_filt_f[peak_data_abun_filt_f$compound == compound,]
+    
+    t_test_x <- fc_calc_f[fc_calc_f$pval_cat,]$mean_area
+    t_test_y <- fc_calc_f[fc_calc_f$pval_cat == FALSE,]$mean_area
+    
+    pval <- t.test(t_test_x, t_test_y)$p.value
+    fc <- (log2(mean(t_test_x) + 1) -
+             log2(mean(t_test_y) + 1)) 
+    new_row <- data.frame(compound = compound, pval = pval, fc = fc)
+    foldchange_f <- rbind(foldchange_f, new_row)
+}
+```
+
+
+```{r}
+foldchange %>%
+  mutate(pval = -log10(pval)) %>%
+  filter(treatment != "C") %>%
+  ggplot() +
+  geom_point(aes(x = fc, y = pval, color = treatment)) +
+  scale_color_manual(name = "treatment",
+                     values = c("F"="#c33225", "P"="#f8dc69", "PF"="#f49c14", "N"="#abdfc1", 
+                                "NP"="#87c1ea", "NF"="#29ad61", "NPF"="#2a7fba"),
+                     labels = c("Iron", "Nitrogen", "Nitrogen + Iron", "Nitrogen + Phosphorus", 
+                                "Nitrogen + Phosphorus + Iron", "Phosphorus", "Phosphorus + Iron")) + 
+  theme_bw() + 
+  facet_wrap(~treatment, ncol = 4) + 
+  xlim(-6, 6) +
+  xlab("Log2(Fold-Change)") +
+  ylab("-Log10(p-value)") +
+  ggtitle("Fold change calculated with respect to T0")
+```
+
+Fold change calculated versus T0. There is less clear grouping of the nitrogen-containing treatments to the right of the graph compared to the control fold change, but there is still a trend. There are multiple metabolites grouped in the right side of the graph that have a significantly higher peak area in the nitrogen-added treatments.
+
+```{r}
+foldchange_control %>%
+  mutate(pval = -log10(pval)) %>%
+  filter(treatment != "Tote") %>%
+    ggplot() +
+    geom_point(aes(x = fc, y = pval, color = treatment)) +
+    scale_color_manual(name = "treatment",
+                       values = c("F"="#c33225", "P"="#f8dc69", "PF"="#f49c14", "N"="#abdfc1", 
+                                  "NP"="#87c1ea", "NF"="#29ad61", "NPF"="#2a7fba"),
+                       labels = c("Iron", "Nitrogen", "Nitrogen + Iron", "Nitrogen + Phosphorus", 
+                                  "Nitrogen + Phosphorus + Iron", "Phosphorus", "Phosphorus + Iron")) + 
+  theme_bw() + 
+  facet_wrap(~treatment, ncol = 4) + 
+  xlim(-5, 5) + 
+  xlab("Log2(Fold-Change)") +
+  ylab("-Log10(p-value)") +
+  ggtitle("Fold change calculated with respect to control")
+```
+
+Fold change calculated with respect to the control, with a log10 scaled y-axis and a log2 scaled x-axis. This plot shows additional differentiation of the nitrogen-containing groups from the other treatments, grouping towards the positive maximum on the x-axis exhibiting an increased metabolite peak area in those samples, compared to the control.
+
+```{r}
+foldchange_n %>%
+  mutate(pval = -log10(pval)) %>%
+  ggplot() +
+  geom_point(aes(x = fc, y = pval)) + 
+  theme_bw() +
+  xlab("Log2(Fold-Change)") +
+  ylab("-Log10(p-value)") + 
+  ggtitle("Fold change of N-containing treatments to non-N containing treatments")
+```
+
+Fold change calculated between two groups: nitrogen containing treatments and non-nitrogen containing treatments. Metabolites with a positive fold change exhibit higher peak areas than in the non-nitrogen containing treatments. Significant outliers of interest are metabolites #762 and #1304, which are shown below with their peak areas across the different treatment groups. #762 is found in the upper left side of the graph, showing an overall enrichment (increase in peak area) in non-nitrogen containing treatments. #1304 is found on the upper right side of the graph, as it is enriched in the nitrogen-containing treatments.
+
+```{r}
+foldchange_f %>%
+  mutate(pval = -log10(pval)) %>%
+  ggplot() +
+  geom_point(aes(x = fc, y = pval)) + 
+  theme_bw() +
+  xlim(-2.5, 2.5) + 
+  xlab("Log2(Fold-Change)") +
+  ylab("-Log10(p-value)") + 
+  ggtitle("Fold change of Fe-containing treatments to non-Fe containing treatments")
+```
+
+Fold change calculated between iron containing and non-iron containing treatments. Metabolites with a positive fold change are enriched in iron-containing treatments, whereas metabolites with a negative fold change are enriched in non-iron containing treatments. The results in this figure are not statistically significant, with no p-values of < 0.05. Many metabolites on either side of the volcano plot are there as a direct result of one outlier out of the triplicates, indicating irreplicable results across the replicates. 
+
+```{r}
+peak_data_abun_filt %>% 
+  group_by(treatment, compound) %>% 
+  filter(compound == "762") %>% 
+  ggplot() +
+  geom_boxplot(aes(x = treatment, y = area)) + 
+  geom_point(aes(x = treatment, y = area)) + 
+  theme_bw() + 
+  scale_x_discrete(limits = c("F", "P", "PF", "N", "NF", "NP","NPF", "C")) + 
+  ggtitle("Metabolite #762") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+data_chr <- peak_data_filtered %>% 
+  filter(compound == "FT0762")
+
+ft762_mz = 160.1334
+
+ft762_data <- peak_data %>% 
+  filter(feat_mzmed%between%pmppm(ft762_mz, ppm=5)) 
+
+ft762 <- msdata$MS1[mz%between%pmppm(ft762_mz)] %>%
+  left_join(metadataframe %>% mutate(filename=paste0("230213_Smp_", filename)), by="filename") %>%
+  ggplot() +
+  geom_line(aes(x=rt, y=int, group=filename, color=treatment)) + 
+  theme_bw() + 
+  xlab("Retention Time") +
+  ylab("Intensity") + 
+  ggtitle("Chromatogram of Compound: 762") +
+  coord_cartesian(xlim=c(8, 10)) +
+  scale_color_manual(name = "treatment",
+                     values = c("F"="#c33225", "P"="#f8dc69", "PF"="#f49c14", "N"="#abdfc1", 
+                                "NP"="#87c1ea", "NF"="#29ad61", "NPF"="#2a7fba"),
+                     labels = c("Iron", "Nitrogen", "Nitrogen + Iron", "Nitrogen + Phosphorus", 
+                                "Nitrogen + Phosphorus + Iron", "Phosphorus", "Phosphorus + Iron"))
+
+ft762
+```
+
+
+```{r}
+peak_data_abun_filt %>% 
+  group_by(treatment, compound) %>% 
+  filter(compound == "1304") %>% 
+  ggplot() +
+  geom_boxplot(aes(x = treatment, y = area)) + 
+  geom_point(aes(x = treatment, y = area)) + 
+  theme_bw() + 
+  scale_x_discrete(limits = c("F", "P", "PF", "N", "NF", "NP","NPF", "C")) + 
+  ggtitle("Metabolite #1304") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+data_chr <- peak_data_filtered %>% 
+  filter(compound == "FT1304")
+
+ft1304_mz = 272.1341
+
+ft1304_data <- peak_data %>% 
+  filter(feat_mzmed%between%pmppm(ft1304_mz, ppm=1)) 
+
+ft1304 <- msdata$MS1[mz%between%pmppm(ft1304_mz)] %>%
+  left_join(metadataframe %>% mutate(filename=paste0("230213_Smp_", filename)), by="filename") %>%
+  ggplot() +
+  geom_line(aes(x=rt, y=int, group=filename, color=treatment)) + 
+  theme_bw() + 
+  xlab("Retention Time") +
+  ylab("Intensity") + 
+  ggtitle("Chromatogram of Compound: 1304") +
+  coord_cartesian(xlim=c(9,11)) +
+  scale_color_manual(name = "treatment",
+                     values = c("F"="#c33225", "P"="#f8dc69", "PF"="#f49c14", "N"="#abdfc1", 
+                                "NP"="#87c1ea", "NF"="#29ad61", "NPF"="#2a7fba"),
+                     labels = c("Iron", "Nitrogen", "Nitrogen + Iron", "Nitrogen + Phosphorus", 
+                                "Nitrogen + Phosphorus + Iron", "Phosphorus", "Phosphorus + Iron"))
+
+ft1304
+```
+
+```{r}
+# metabolite 1370 is downregulated in Fe volcano plot
+
+# metabolite 1193 is upregulated in Fe volcano plot
+
+# notes to send to seth and emily: here is fe volcano plot, in terms of targeted data i plan to do similar data manipulations with targeted data this summer, NP/NPF and N/NF treatment differences? Would like to have PC/PN data for biomass normalization and flow cytometry data to look into Pro story a bit.
+
+peak_data_abun_filt %>% 
+  group_by(treatment, compound) %>% 
+  filter(compound == "575") %>% 
+  ggplot() +
+  geom_boxplot(aes(x = treatment, y = area)) + 
+  geom_point(aes(x = treatment, y = area)) + 
+  theme_bw() + 
+  scale_x_discrete(limits = c("F", "P", "PF", "N", "NF", "NP","NPF", "C")) + 
+  ggtitle("Metabolite #575") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+

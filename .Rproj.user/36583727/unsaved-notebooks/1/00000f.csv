@@ -1,0 +1,11 @@
+"2","Warning in split_lines(text) :"
+"2","
+ "
+"2"," restarting interrupted promise evaluation
+"
+"2","Warning in split_lines(text) :"
+"2"," internal error -3 in R_decompress1
+"
+"2","Error in split_lines(text) : 
+  lazy-load database '/Library/Frameworks/R.framework/Versions/4.2/Resources/library/xfun/R/xfun.rdb' is corrupt
+"

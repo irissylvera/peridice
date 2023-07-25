@@ -1,0 +1,730 @@
+---
+title: "Peak area control doc"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, purl = TRUE)
+options("readr.num_columns" = 0)
+
+library(tidyverse)
+
+already_good <- 0.1
+min_improvement <- 0.4
+
+cv <- function(x)sd(x)/mean(x)
+
+clean_stans <- read.csv("../metadata/clean_stans.csv")
+name_conversion <- clean_stans %>%
+  select(new=compound_name, old=name_old) %>%
+  distinct()
+date_filter <- clean_stans %>%
+  select(compound_name=name_old, date_added) %>%
+  distinct()
+file_metadata <- read.csv("../metadata/filled_file_metadata.csv")
+```
+
+# Convert raw data ----
+
+First step is getting the data out of Skyline/MSDIAL. This is doable by script
+if the original .sky and .mdf files are available, as they should be in this
+case in the raw_data folder broken down by cruise.
+
+We also need the console interfaces to both Skyline and MSDIAL.
+MSDIAL's comes with the app and is pointed to with a raw file path to wherever
+the MSDIAL files were extracted, and Skyline requires a separate download of
+their command line version.
+
+Mesotransect was integrated with MSDIAL, Falkor and Mesocenter used Skyline.
+
+```{r grabRAnotes}
+if(!file.exists("raw_data/Raafay_HILIC_notes.csv")){
+  library(googlesheets4)
+  if(!gs4_has_token())stop("Refresh Google token")
+  # googlesheets4::gs4_auth()
+  
+  manual_pos <- read_sheet(ss = "1lU7g5rfem81s_0fqMP93yzegogCN29JJEdsIESfAX7c", 
+                           skip = 1, sheet = "HILIC_POS") %>%
+    select(compound_name=`Compound name`,
+           integrated=`Integrated? (Y/N)`,
+           in_samps=`In samples? (Y/N)`) %>%
+    mutate(polarity="pos")
+  manual_neg <- read_sheet(ss = "1lU7g5rfem81s_0fqMP93yzegogCN29JJEdsIESfAX7c",
+                           sheet = "HILIC_NEG") %>%
+    select(compound_name=`Compound name`,
+           integrated=`Integrated? (Y/N)`,
+           in_samps=`In samples? (Y/N)`) %>%
+    mutate(polarity="neg")
+  manual_quality <- rbind(manual_pos, manual_neg) %>%
+    mutate(compound_name=str_replace(compound_name, "_ ", ", ")) %>%
+    filter(!is.na(compound_name)) %>%
+    filter(compound_name!="Internal Standards") %>%
+  left_join(name_conversion, by=c(compound_name="old")) %>%
+  mutate(compound_name=new) %>%
+  select(-new)
+  write.csv(manual_quality, file = "raw_data/Raafay_HILIC_notes.csv", 
+            row.names = FALSE)
+}
+manual_quality <- read.csv("raw_data/Raafay_HILIC_notes.csv") 
+```
+
+SkylineRunner.exe output relating to exporting files:
+Exporting reports
+ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+³--report-name=<name>          ³The name of a report to export as it appears ³
+³                              ³in the Skyline Export Report form.           ³
+ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³--report-file=path/to/file.csv³The path to export the report to. Required if³
+³                              ³--report-name is specified.                  ³
+ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³--report-add=path/to/file.skyr³Add reports from a saved report template file³
+³                              ³to the running program.                      ³
+ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³--report-conflict-resolution= ³Specifies how to resolve report name         ³
+³<overwrite | skip>            ³conflicts, by either overwriting or skipping ³
+³                              ³them, when using --report-add (default is to ³
+³                              ³output an error message for conflicts)       ³
+ÃÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´
+³--report-format=<csv | tsv>   ³CSV for comma-separated reports (or semicolon³
+³                              ³separated, depending on your localization) or³
+³                              ³TSV for tab separated reports [default CSV]  ³
+
+```{r Falkor Skyline data extraction}
+FK_POS_cmd <- paste(
+  "SkylineRunner.exe",
+  "--in=raw_data/Falkor/HILIC_QE_POSITIVE_Falkor_1.sky", 
+  '--report-name="Ingalls_Lab_QE_Transition Results"',
+  '--report-file="raw_data/Falkor/Ingalls_Lab_QE_Transition Results_POS.csv"',
+  '--report-format="csv"'
+)
+system(FK_POS_cmd)
+
+FK_neg_cmd <- paste(
+  "SkylineRunner.exe",
+  "--in=raw_data/Falkor/HILIC_QE_NEGATIVE_Falkor.sky", 
+  '--report-name="Ingalls_Lab_QE_Transition Results"',
+  '--report-file="raw_data/Falkor/Ingalls_Lab_QE_Transition Results_NEG.csv"',
+  '--report-format="csv"'
+)
+system(FK_neg_cmd)
+```
+
+```{r Mesocenter Skyline data extraction}
+MC_POS_cmd <- paste(
+  "SkylineRunner.exe",
+  "--in=raw_data/Mesocenters/HILIC_QE_POSITIVE_Wei_HRM_DepthProfile.sky", 
+  '--report-name="Ingalls_Lab_QE_Transition Results"',
+  '--report-file="raw_data/Mesocenters/Ingalls_Lab_QE_Transition Results_POS.csv"',
+  '--report-format="csv"'
+)
+system(MC_POS_cmd)
+
+FK_NEG_cmd <- paste(
+  "SkylineRunner.exe",
+  "--in=raw_data/Mesocenters/HILIC_QE_NEGATIVE_Wei_HRM_DepthProfile.sky", 
+  '--report-name="Ingalls_Lab_QE_Transition Results"',
+  '--report-file="raw_data/Mesocenters/Ingalls_Lab_QE_Transition Results_NEG.csv"',
+  '--report-format="csv"'
+)
+system(FK_NEG_cmd)
+```
+
+```{r Mesotransect MSDIAL autoexport things not yet}
+# Not implemented yet, check on thread below for updates
+# http://www.metabolomics-forum.com/index.php?topic=1820.0
+# Instead, open an existing .mtd2 file, click the "Export" tab, select "Alignment result", specify the output directory as the current working directory, check the Raw Data matrix (Area) box , keep the output format as msp, and hit the "Export" button at the bottom.
+```
+
+
+# Falkor things
+
+Start with the Falkor data, since it's nice and neat. Here we're pulling from
+the raw_data/Falkor folder, which has the Skyline files, their output, and
+will soon have Raafay's notes on peak quality.
+
+These CSV files were obtained from Skyline by exporting the transition results,
+with a "_POS" or "_NEG" added to distinguish them.
+
+```{r falkorSkylineImport}
+# Read in the data and clean it up a little bit
+manual_pos <- read.csv("raw_data/Falkor/Ingalls_Lab_QE_Transition Results_POS.csv") %>%
+  mutate(polarity="pos")
+manual_neg <- read.csv("raw_data/Falkor/Ingalls_Lab_QE_Transition Results_NEG.csv") %>%
+  mutate(polarity="neg")
+manual_ints <- rbind(manual_pos, manual_neg) %>%
+  select(filename=Replicate.Name, compound_name=Precursor.Ion.Name, 
+         area=Area, polarity) %>% 
+  mutate(filename = ifelse(str_detect(filename, "DDA"),
+                           str_replace(filename, "Poo", "DDA"),
+                           filename)) %>%
+  mutate(filename = ifelse(str_detect(filename, "QC"),
+                           str_replace(filename, "Poo", "QC"),
+                           filename)) %>% 
+  mutate(compound_name=str_replace(
+    compound_name, "Monophosphate, 15N5", "monophosphate, 15N5")) %>%
+  left_join(name_conversion, by=c("compound_name"="old")) %>% 
+  mutate(compound_name=new) %>% 
+  select(-new) %>% 
+  left_join(manual_quality, by=c("compound_name", "polarity"))
+
+# Filter for only those peaks that Raafay actually integrated
+clean_ints_falkor <- manual_ints %>%
+  filter(integrated=="Y"&in_samps%in%c("Y", "Maybe?", "Kinda?", "Barely", "Kinda")) %>%
+  select(-integrated, -in_samps) %>% 
+  mutate(area=as.numeric(area))
+```
+
+```{r falkorBMIS}
+pooled <- clean_ints_falkor %>%
+  filter(str_detect(filename, "_Poo_"))
+
+pooled_IS <- pooled %>%
+  left_join(clean_stans %>% select(compound_name, compound_type) %>% distinct(), by=c("compound_name")) %>% 
+  filter(compound_type=="Internal Standard") %>%
+  select(-compound_type, -polarity) %>%
+  rename_with(~paste0("IS_", .), -filename) %>%
+  add_row(filename=unique(.$filename), IS_compound_name="None", IS_area=1)
+
+initial_CVs <- pooled %>%
+  mutate(area=ifelse(str_detect(filename, "Half"), area*2, area)) %>%
+  group_by(compound_name) %>%
+  summarize(init_CV=cv(area))
+
+standardized_CVs <- full_join(pooled, pooled_IS, by=c("filename")) %>%
+  group_by(compound_name, IS_compound_name) %>%
+  summarize(norm_CV=cv(area/IS_area), .groups="drop")
+
+chosen_BMIS_falkor <- standardized_CVs %>%
+  left_join(initial_CVs) %>%
+  group_by(compound_name) %>%
+  mutate(MIS_improvement=(init_CV - norm_CV)/init_CV) %>% 
+  filter(MIS_improvement>min_improvement|IS_compound_name=="None") %>%
+  arrange(desc(MIS_improvement)) %>%
+  group_by(compound_name) %>%
+  slice(1) %>%
+  select(compound_name, BMIS=IS_compound_name)
+
+BMISed_falkor <- clean_ints_falkor %>%
+  left_join(chosen_BMIS_falkor, by="compound_name") %>%
+  left_join(clean_ints_falkor %>% rename(IS_area=area) %>% select(-polarity), 
+            by=c(BMIS="compound_name", "filename")) %>%
+  group_by(compound_name) %>%
+  mutate(BMISed_area=area/IS_area*mean(IS_area)) %>%
+  mutate(BMISed_area = ifelse(BMIS=="None", area, BMISed_area)) %>%
+  mutate(BMISed_area = ifelse(str_detect(filename, "Half")&BMIS=="None", 
+                              BMISed_area*2, BMISed_area)) %>%
+  select(-IS_area)
+```
+
+```{r falkorRFs}
+falkor_rundate <- strptime("190715", "%y%m%d")
+falkor_stans <- clean_stans %>%
+  filter(date_added<=falkor_rundate)
+
+rfs_falkor <- falkor_stans %>%
+  left_join(BMISed_falkor, by=c("compound_name", "polarity")) %>%
+  filter(str_detect(filename, "_Std_")) %>%
+  filter(compound_type!="Internal Standard") %>%
+  select(-compound_type) %>%
+  mutate(mix=paste0("H2OinMatrix|", paste0(mix, "InMatrix"), "|", paste0(mix, "InH2O"))) %>%
+  filter(str_detect(filename, mix)) %>%
+  mutate(type=str_replace(str_extract(filename, mix), "Mix[12]", "Mix")) %>%
+  select(-mix) %>%
+  group_by(compound_name, type) %>%
+  summarize(mean_area=mean(area, na.rm = TRUE), conc_um=unique(conc_um)) %>%
+  pivot_wider(names_from = type, values_from=mean_area) %>%
+  mutate(rf_h2o=MixInH2O/conc_um) %>%
+  mutate(rf_matrix=(MixInMatrix - H2OinMatrix)/conc_um) %>%
+  mutate(rf_ratio=rf_matrix/rf_h2o)
+
+# 400uL vial, 10L sample, diluted x2
+falkor_data <- rfs_falkor %>% 
+  left_join(BMISed_falkor, by="compound_name") %>%
+  left_join(clean_stans) %>%
+  mutate(uM = BMISed_area/rf_h2o * 0.0004/10 * 1/rf_ratio * 2) %>% 
+  mutate(nM=uM*1000) %>%
+  select(compound_name, nM, filename, polarity)
+```
+
+# Mesotransect things
+
+Continue with the MESOSCOPE transect data. Here again, we use Raafay's notes
+on peak quality to remove the gross peaks.
+
+```{r transectMsdialImport}
+
+manual_neg <- read_delim("raw_data/Mesotransect/MSDial_neg_data/Area_0_20235251247.txt", skip = 4, delim = "\t") %>%
+  filter(`Metabolite name`!="Unknown") %>%
+  select(compound_name=`Metabolite name`, starts_with("180821")) %>%
+  pivot_longer(cols=starts_with("180821"), names_to = "filename", values_to="area") %>%
+  mutate(polarity="neg")
+manual_pos <- read_delim("raw_data/Mesotransect/MSDial_pos_data/Area_2_2023525133.txt", skip = 4, delim = "\t") %>%
+  filter(`Metabolite name`!="Unknown") %>%
+  select(compound_name=`Metabolite name`, starts_with("180821")) %>%
+  pivot_longer(cols=starts_with("180821"), names_to = "filename", values_to="area") %>%
+  mutate(polarity="pos")
+manual_ints <- rbind(manual_pos, manual_neg) %>%
+  mutate(compound_name=str_replace_all(compound_name, "Ingalls_|w/o MS2:|Unsettled: ", "")) %>%
+  mutate(filename = ifelse(str_detect(filename, "DDA"),
+                           str_replace(filename, "Poo", "DDA"),
+                           filename)) %>%
+  mutate(filename = ifelse(str_detect(filename, "QC"),
+                           str_replace(filename, "Poo", "QC"),
+                           filename)) %>%
+  anti_join(date_filter %>% filter(date_added>180821))
+
+
+# Once again, filter only those that Raafay integrated
+clean_ints_transect <- manual_ints %>%
+  filter(!str_detect(filename, "DDA")) %>%
+  filter(compound_name!="Methyl 3-methylthiopropionate") %>%
+  filter(compound_name!="N(e)-Acetyl-Lysine") %>%
+  filter(compound_name!="Valine") %>%
+  mutate(compound_name=str_replace(compound_name, "Monophosphate, 15N5", "monophosphate, 15N5")) %>%
+  left_join(name_conversion, by=c("compound_name"="old")) %>% 
+  mutate(compound_name=ifelse(is.na(new), compound_name, new)) %>% 
+  select(-new) %>% 
+  left_join(manual_quality, by=c("compound_name", "polarity")) %>%
+  filter(integrated=="Y" &in_samps%in%c("Y", "Maybe?", "Kinda?", "Barely", "Kinda")) %>%
+  select(-integrated, -in_samps) %>%
+  mutate(area=as.numeric(area)) %>%
+  anti_join(distinct(., compound_name, polarity) %>% filter(duplicated(compound_name)))
+
+# Fix sample 180821_Smp_MS6C315m_C which didn't get extraction standards added
+ext_stans_list <- c(
+  "Isethionic acid, 13C2",
+  "L-Cysteic acid, 2H3",
+  "Sulfoacetic acid, 13C2",
+  "3-Sulfolactate, 13C3",
+  "Taurine, 2H4"
+)
+update_df <- clean_ints_transect %>%
+  filter(str_detect(filename, "Smp")) %>%
+  filter(polarity=="neg") %>%
+  filter(compound_name%in%ext_stans_list) %>%
+  group_by(compound_name) %>%
+  summarise(area=median(area)) %>%
+  mutate(filename="180821_Smp_MS6C315m_C")
+clean_ints_transect <- clean_ints_transect %>%
+  rows_update(update_df, by = c("compound_name", "filename"))
+```
+
+```{r transectBMIS}
+pooled <- clean_ints_transect %>%
+  filter(str_detect(filename, "_Poo_"))
+
+pooled_IS <- pooled %>%
+  left_join(clean_stans %>% select(compound_name, compound_type) %>% distinct(), by=c("compound_name")) %>% 
+  filter(compound_type=="Internal Standard") %>%
+  select(-compound_type, -polarity) %>%
+  rename_with(~paste0("IS_", .), -filename) %>%
+  add_row(filename=unique(.$filename), IS_compound_name="None", IS_area=1)
+
+initial_CVs <- pooled %>%
+  mutate(area=ifelse(str_detect(filename, "Half"), area*2, area)) %>%
+  group_by(compound_name) %>%
+  summarize(init_CV=cv(area))
+
+standardized_CVs <- full_join(pooled, pooled_IS, by=c("filename")) %>%
+  group_by(compound_name, IS_compound_name) %>%
+  summarize(norm_CV=cv(area/IS_area), .groups="drop")
+
+chosen_BMIS_transect <- standardized_CVs %>%
+  left_join(initial_CVs) %>%
+  group_by(compound_name) %>%
+  mutate(MIS_improvement=(init_CV - norm_CV)/init_CV) %>% 
+  filter(MIS_improvement>min_improvement|IS_compound_name=="None") %>%
+  arrange(desc(MIS_improvement)) %>% 
+  group_by(compound_name) %>% 
+  slice(1) %>%
+  select(compound_name, BMIS=IS_compound_name)
+
+BMISed_transect <- clean_ints_transect %>% 
+  left_join(chosen_BMIS_transect, by=c("compound_name")) %>%
+  left_join(clean_ints_transect %>% rename(IS_area=area) %>% select(-polarity), 
+            by=c(BMIS="compound_name", "filename")) %>%
+  group_by(compound_name) %>%
+  mutate(BMISed_area=area/IS_area*mean(IS_area)) %>%
+  mutate(BMISed_area = ifelse(BMIS=="None", area, BMISed_area)) %>%
+  mutate(BMISed_area = ifelse(str_detect(filename, "Half")&BMIS=="None", 
+                              BMISed_area*2, BMISed_area)) %>%
+  select(-IS_area)
+```
+
+```{r transectRFs}
+transect_rundate <- strptime("180821", "%y%m%d")
+transect_stans <- clean_stans %>%
+  filter(strptime(date_added, "%y%m%d")<=transect_rundate)
+
+rfs_transect <- transect_stans %>%
+  left_join(clean_ints_transect, by=c("compound_name", "polarity")) %>%
+  filter(str_detect(filename, "_Std_")) %>% 
+  # filter(compound_name=="N6-Acetyl-L-lysine") %>%
+  # filter(compound_name=="Dimethylsulfonioacetate") %>%
+  # ggplot() + geom_col(aes(x=area,y=filename))
+  filter(compound_type!="Internal Standard") %>%
+  select(-compound_type) %>%
+  mutate(mix=paste0("H2OInMatrix|", paste0(mix, "InMatrix"), "|", paste0(mix, "InH2O"))) %>%
+  filter(str_detect(filename, mix)) %>%
+  mutate(type=str_replace(str_extract(filename, mix), "Mix[12]", "Mix")) %>%
+  select(-mix) %>% 
+  group_by(compound_name, type) %>%
+  summarise(mean_area=mean(area, na.rm = TRUE), conc_um=unique(conc_um)) %>%
+  pivot_wider(names_from = type, values_from=mean_area) %>% 
+  mutate(rf_h2o=MixInH2O/conc_um) %>%
+  mutate(rf_matrix=(MixInMatrix - H2OInMatrix)/conc_um) %>%
+  mutate(rf_ratio=rf_matrix/rf_h2o)
+
+mesotransect_data <- rfs_transect %>% 
+  left_join(BMISed_transect, by="compound_name", multiple="all") %>%
+  left_join(clean_stans) %>%
+  mutate(uM = BMISed_area/rf_h2o * 0.0004/10 * 1/rf_ratio * 2) %>% # 400uL vial, 10L sample, diluted 2x
+  mutate(nM=uM*1000) %>%
+  select(compound_name, nM, filename, polarity)
+```
+
+```{r transect fix sucrose/trehalose integrations, eval=FALSE}
+# Sucrose and trehalose got integrated together which is obnoxious because we 
+# have IS for each of those so it'd be really nice to get those good numbers
+# Re-integrating using RaMS
+
+library(RaMS)
+# msdata <- list.files("../tmzMLs/neg", full.names = TRUE, 
+#                      pattern = "170706|180821|180205") %>% 
+#   grabMSdata(verbosity = 0)
+# tresuc_msdata <- msdata$MS1[mz%between%pmppm(341.10839, 10)]
+# IS_msdata <- msdata$MS1[mz%between%pmppm(353.1497, 10)]
+
+
+
+suc_data <- tresuc_msdata[rt%between%c(11.2, 12.1)] %>%
+  group_by(filename) %>%
+  summarize(area=sum(int))
+suc_IS_data <- IS_msdata[rt%between%c(11.2, 12.1)] %>%
+  group_by(filename) %>%
+  summarize(IS_area=sum(int))
+# ggplot(suc_IS_data) + geom_col(aes(x=filename, y=IS_area))
+suc_nM <- left_join(suc_data, suc_IS_data) %>%
+  mutate(nM=area/IS_area*5000 * 0.0004/10 * 2) %>%
+  mutate(compound_name="Sucrose")
+
+tre_data <- tresuc_msdata[rt%between%c(12.1, 12.9)] %>%
+  group_by(filename) %>%
+  summarize(area=sum(int))
+tre_IS_data <- IS_msdata[rt%between%c(12.1, 12.9)] %>%
+  group_by(filename) %>%
+  summarize(IS_area=sum(int))
+# ggplot(suc_IS_data) + geom_col(aes(x=filename, y=IS_area))
+tre_nM <- left_join(tre_data, tre_IS_data) %>%
+  mutate(nM=area/IS_area*5000 * 0.0004/10 * 2) %>%
+  mutate(compound_name="Trehalose")
+
+update_df <- bind_rows(tre_nM, suc_nM) %>%
+  select(compound_name, nM, filename) %>%
+  mutate(polarity="neg") %>%
+  mutate(filename=str_remove(filename, ".tmzML"))
+mesotransect_data <- mesotransect_data %>%
+  rows_upsert(update_df, by=c("compound_name", "nM", "filename", "polarity"))
+```
+
+# Mesocenter things
+
+```{r centerSkylineImport}
+manual_pos <- read.csv("raw_data/Mesocenters/Ingalls_Lab_QE_Transition Results_POS.csv") %>%
+  mutate(polarity="pos")
+manual_neg <- read.csv("raw_data/Mesocenters/Ingalls_Lab_QE_Transition Results_NEG.csv") %>%
+  mutate(polarity="neg")
+manual_ints <- rbind(manual_pos, manual_neg) %>%
+  select(filename=Replicate.Name, compound_name=Precursor.Ion.Name, 
+         area=Area, polarity) %>%
+  mutate(filename = ifelse(str_detect(filename, "DDA"),
+                           str_replace(filename, "Poo", "DDA"),
+                           filename)) %>%
+  mutate(filename = ifelse(str_detect(filename, "QC"),
+                           str_replace(filename, "Poo", "QC"),
+                           filename)) %>%
+  mutate(compound_name=str_replace(
+    compound_name, "Monophosphate, 15N5", "monophosphate, 15N5")) %>%
+  left_join(name_conversion, by=c("compound_name"="old")) %>% 
+  mutate(compound_name=ifelse(is.na(new), compound_name, new)) %>% 
+  select(-new) %>% 
+  left_join(manual_quality, by=c("compound_name", "polarity"))
+
+clean_ints_center <- manual_ints %>%
+  filter(integrated=="Y"&in_samps%in%c("Y", "Maybe?", "Kinda?", "Barely", "Kinda")) %>%
+  select(-integrated, -in_samps) %>% 
+  mutate(area=as.numeric(area)) %>%
+  filter(!compound_name%in%c("Turicine", "Hydroxyisoleucine"))
+```
+
+```{r centerBMIS}
+pooled <- clean_ints_center %>%
+  filter(str_detect(filename, "_Poo_"))
+
+pooled_IS <- pooled %>%
+  left_join(clean_stans %>% select(compound_name, compound_type) %>% 
+              distinct(), by=c("compound_name")) %>% 
+  filter(compound_type=="Internal Standard") %>%
+  select(-compound_type, -polarity) %>%
+  rename_with(~paste0("IS_", .), -filename) %>%
+  add_row(filename=unique(.$filename), IS_compound_name="None", IS_area=1)
+
+initial_CVs <- pooled %>%
+  mutate(area=ifelse(str_detect(filename, "Half"), area*2, area)) %>%
+  group_by(compound_name) %>%
+  summarize(init_CV=cv(area))
+
+standardized_CVs <- full_join(pooled, pooled_IS, by=c("filename")) %>%
+  group_by(compound_name, IS_compound_name) %>%
+  summarize(norm_CV=cv(area/IS_area), .groups="drop")
+
+chosen_BMIS_center <- standardized_CVs %>%
+  left_join(initial_CVs) %>%
+  group_by(compound_name) %>%
+  mutate(MIS_improvement=(init_CV - norm_CV)/init_CV) %>% 
+  filter(MIS_improvement>min_improvement|IS_compound_name=="None") %>%
+  arrange(desc(MIS_improvement)) %>%
+  group_by(compound_name) %>%
+  slice(1) %>%
+  select(compound_name, BMIS=IS_compound_name)
+
+BMISed_center <- clean_ints_center %>% 
+  left_join(chosen_BMIS_center, by="compound_name") %>%
+  left_join(clean_ints_center %>% rename(IS_area=area) %>% select(-polarity), 
+            by=c(BMIS="compound_name", "filename")) %>%
+  group_by(compound_name) %>%
+  mutate(BMISed_area=area/IS_area*mean(IS_area)) %>%
+  mutate(BMISed_area = ifelse(BMIS=="None", area, BMISed_area)) %>%
+  mutate(BMISed_area = ifelse(str_detect(filename, "Half")&BMIS=="None", 
+                              BMISed_area*2, BMISed_area)) %>%
+  select(-IS_area)
+```
+
+The RFs for the Mesocenter data are a little weird because they weren't run
+with H2OinMatrix samples. The good news is that in theory, the RF ratio for
+every compound is the same so we can use the RF ratios from Falkor to normalize
+these samples instead.
+
+```{r centerRFs}
+# Slightly weird because Mesocenter data doesn't have H2OinMatrix samples
+center_rundate <- strptime("180205", "%y%m%d")
+center_stans <- clean_stans %>%
+  filter(strptime(date_added, "%y%m%d")<=center_rundate)
+
+custom_h2o_mat <- clean_ints_center %>%
+  filter(str_detect(filename, "Poo_Full")) %>%
+  group_by(compound_name) %>%
+  summarise(newH2OInMatrix=mean(area)*(1-(62.94*100/80)/100))
+
+rfs_center <- center_stans %>% 
+  left_join(clean_ints_center, by=c("compound_name", "polarity")) %>%
+  filter(str_detect(filename, "_Std_")) %>%
+  filter(compound_type!="Internal Standard") %>%
+  select(-compound_type) %>% 
+  mutate(mix="InMatrix|InH2O") %>% 
+  filter(str_detect(filename, mix)) %>%
+  mutate(type=str_extract(filename, mix)) %>%
+  select(-mix) %>% 
+  group_by(compound_name, type) %>%
+  summarize(mean_area=mean(area, na.rm = TRUE), conc_um=unique(conc_um)) %>%
+  pivot_wider(names_from = type, values_from=mean_area) %>%
+  left_join(custom_h2o_mat) %>%
+  # left_join(rfs_falkor) %>%
+  mutate(rf_h2o=InH2O/conc_um) %>%
+  mutate(rf_matrix=(InMatrix - newH2OInMatrix)/conc_um) %>%
+  mutate(rf_ratio=rf_matrix/rf_h2o)
+
+mesocenter_data <- rfs_center %>% 
+  left_join(BMISed_center, by="compound_name") %>% 
+  left_join(clean_stans) %>% 
+  mutate(uM = BMISed_area/rf_h2o * 0.0004/10 * 1/rf_ratio * 2) %>%
+  mutate(nM=uM*1000) %>%
+  select(compound_name, nM, filename, polarity)
+```
+
+# Combine and write out
+
+I'm interested in exporting not only final concentrations, but also the raw
+areas and BMIS assignments for debugging purposes. These all go into the
+made_data folder.
+
+```{r collect}
+## Write out just the raw areas
+raw_area_data <- rbind(
+  cbind(clean_ints_falkor, cruise="Falkor"),
+  cbind(clean_ints_center, cruise="Mesocenter"),
+  cbind(clean_ints_transect, cruise="Mesotransect")
+) %>%
+  left_join(clean_stans, by=c("compound_name", "polarity"))
+write.csv(raw_area_data, file = "made_data/raw_area_data.csv", row.names = FALSE)
+
+
+## Write out BMISed areas
+BMISed_areas <- rbind(
+  cbind(BMISed_falkor, cruise="Falkor"),
+  cbind(BMISed_center, cruise="Mesocenter"),
+  cbind(BMISed_transect, cruise="Mesotransect")
+)
+write.csv(BMISed_areas, file = "made_data/BMIS_areas.csv", row.names = FALSE)
+
+## Write out RF ratios
+rfrs <- rbind(cbind(rfs_falkor, cruise="Falkor"),
+              cbind(rfs_transect, cruise="Mesotransect"))
+write.csv(rfrs, "made_data/rf_ratios.csv", row.names=FALSE)
+
+## Write out quant data
+quant_data <- bind_rows(falkor_data, mesotransect_data, mesocenter_data) %>%
+  filter(compound_name!="Choline") %>%
+  mutate(nM=ifelse(compound_name=="Homarine", nM/25, nM))
+write.csv(quant_data, file = "made_data/longdata.csv", row.names = FALSE)
+write_csv(quant_data, file = "all_peaks.csv")
+```
+
+```{r write MESOSCOPE to Excel}
+library(openxlsx)
+wb <- createWorkbook(creator = "William Kumler, wkumler@uw.edu")
+addWorksheet(wb, sheetName = "Sample data")
+bind_rows(mesotransect_data, mesocenter_data) %>%
+  pivot_wider(names_from = filename, values_from = nM) %>%
+  writeData(wb = wb, sheet = "Sample data")
+freezePane(wb, sheet = "Sample data", firstRow = TRUE, firstCol = TRUE)
+addWorksheet(wb, "File metadata")
+file_metadata %>%
+  filter(cruise%in%c("MT", "MC")) %>%
+  mutate(filename=str_remove(filename, ".mzML")) %>%
+  distinct(filename, samp_type, station, cast, depth, abs_depth, rosette,date_run) %>%
+  rename(sample_name=filename) %>%
+  writeData(wb = wb, sheet = "File metadata")
+addWorksheet(wb = wb, sheetName = "Compound metadata")
+clean_stans %>%
+  select(compound_name, compound_type, formula, stan_rt, stan_mz, 
+         kegg_id, polarity, peak_quality) %>%
+  writeData(wb = wb, sheet = "Compound metadata")
+
+addWorksheet(wb=wb, sheetName = "README")
+data.frame(`README for Ingalls MESOSCOPE data`=c(
+  "This file was produced by William Kumler in the Ingalls lab at the University of Washington",
+  "This file contains concentrations of compounds in seawater measured via HPLC-MS",
+  "in a targeted (selected subset of known compounds) method.",
+  "",
+  "The first sheet (Sample data) contains the concentrations of various molecules in each sample",
+  "taken during the MESOSCOPE cruise in 2017. These values are in nanomoles per",
+  "liter of seawater (nM) from the particulate phase (particles collected onto",
+  "0.2um Durapore filters).",
+  "Missing values are shown as empty cells and infinite values (usually in the standards) are shown as #NUM!",
+  "",
+  "The second sheet (File metadata) contains information about the samples themselves, including",
+  "the depth, time, and station from which they were collected. ",
+  "sample_name = Name of the sample as shown in the Sample data Excel sheet",
+  "samp_type = Type of sample, whether biological sample (Smp), blank (Blk), pooled (Poo), or standard (Std)",
+  "station = Station from which the sample was collected, 1-15 plus L1 and L2",
+  "cast = Which cast the sample was taken from",
+  "depth = Depth descriptor of where in the water column the sample was collected",
+  "abs_depth = Absolute depth. Accounts for differences from DCM and is determined from the CTD itself",
+  "rosette = Which Niskin was this sample taken from? Largely incomplete",
+  "date_run = The date on which the HPLC-MS run was started",
+  "",
+  "The third sheet (Compound metadata) contains information about the compounds measured",
+  "during this analysis. Not all compounds were detected and passed quality control",
+  "so there are more compounds here than found in the Sample data sheet.",
+  "compound_name = Name of the compound, as found in the Sample data sheet",
+  "compound_type = Broad compound class as determined rather arbitrarily by myself",
+  "formula = Molecular formula of the compound. Isotopes are labeled in parentheses",
+  "stan_rt = Estimated retention time of the compound, in minutes",
+  "stan_mz = Mass-to-charge ratio of the molecule at which it's detected in the mass spec",
+  "kegg_id = KEGG (Kyoto Encyclopedia of Genes and Genomes) ID: https://www.genome.jp/kegg/",
+  "polarity = The polarity at which the molecule was detected in the mass spec, either 'pos' for positive mode or 'neg' for negative mode",
+  "peak_quality = The typical quality of the chromatographic peak. Yes is good, No is bad, and see the Ingalls Standards repo for more details on Problematic compounds",
+  "",
+  paste("File created on", Sys.Date())
+)) %>%
+  writeData(wb = wb, sheet = "README")
+saveWorkbook(wb, file = "MESOSCOPE_Targeted_nM.xlsx", overwrite = TRUE)
+```
+
+```{r write Falkor to Excel}
+library(openxlsx)
+wb <- createWorkbook(creator = "William Kumler, wkumler@uw.edu")
+addWorksheet(wb, sheetName = "Sample data")
+falkor_data %>%
+  pivot_wider(names_from = filename, values_from = nM) %>%
+  writeData(wb = wb, sheet = "Sample data")
+freezePane(wb, sheet = "Sample data", firstRow = TRUE, firstCol = TRUE)
+addWorksheet(wb, "File metadata")
+file_metadata %>%
+  filter(cruise=="FK") %>%
+  mutate(filename=str_remove(filename, ".mzML")) %>%
+  distinct(filename, samp_type, station, cast, depth, abs_depth, rosette, date_run) %>%
+  rename(sample_name=filename) %>%
+  writeData(wb = wb, sheet = "File metadata")
+addWorksheet(wb = wb, sheetName = "Compound metadata")
+clean_stans %>%
+  select(compound_name, compound_type, formula, stan_rt, stan_mz, 
+         kegg_id, polarity, peak_quality) %>%
+  writeData(wb = wb, sheet = "Compound metadata")
+
+addWorksheet(wb=wb, sheetName = "README")
+data.frame(`README for Ingalls Falkor data`=c(
+  "This file was produced by William Kumler in the Ingalls lab at the University of Washington",
+  "This file contains concentrations of compounds in seawater measured via HPLC-MS",
+  "in a targeted (selected subset of known compounds, manually integrated) method.",
+  "",
+  "The first sheet (Sample data) contains the concentrations of various molecules in each sample",
+  "taken during the Falkor cruise in 2018. These values are in nanomoles per",
+  "liter of seawater (nM) from the particulate phase (particles collected onto",
+  "0.2um Durapore filters).",
+  "Missing values are shown as empty cells and infinite values (usually in the standards) are shown as #NUM!",
+  "",
+  "The second sheet (File metadata) contains information about the samples themselves, including",
+  "the depth, time, and station from which they were collected. ",
+  "sample_name = Name of the sample as shown in the Sample data Excel sheet",
+  "samp_type = Type of sample, whether biological sample (Smp), blank (Blk), pooled (Poo), or standard (Std)",
+  "station = Station from which the sample was collected",
+  "cast = Which cast the sample was taken from",
+  "depth = Depth descriptor of where in the water column the sample was collected",
+  "abs_depth = Absolute depth. Accounts for differences from DCM and is determined from the CTD itself",
+  "rosette = Which Niskin was this sample taken from? Largely incomplete",
+  "date_run = The date on which the HPLC-MS run was started",
+  "",
+  "The third sheet (Compound metadata) contains information about the compounds measured",
+  "during this analysis. Not all compounds were detected and passed quality control",
+  "so there are more compounds here than found in the Sample data sheet.",
+  "compound_name = Name of the compound, as found in the Sample data sheet",
+  "compound_type = Broad compound class as determined rather arbitrarily by myself",
+  "formula = Molecular formula of the compound. Isotopes are labeled in parentheses",
+  "stan_rt = Estimated retention time of the compound, in minutes",
+  "stan_mz = Mass-to-charge ratio of the molecule at which it's detected in the mass spec",
+  "kegg_id = KEGG (Kyoto Encyclopedia of Genes and Genomes) ID: https://www.genome.jp/kegg/",
+  "polarity = The polarity at which the molecule was detected in the mass spec, either 'pos' for positive mode or 'neg' for negative mode",
+  "peak_quality = The typical quality of the chromatographic peak. Yes is good, No is bad, and see the Ingalls Standards repo for more details on Problematic compounds",
+  "",
+  paste("File created on", Sys.Date())
+)) %>%
+  writeData(wb = wb, sheet = "README")
+saveWorkbook(wb, file = "Falkor_Targeted_nM.xlsx", overwrite = TRUE)
+```
+
+# Perform some quality checks
+
+```{r}
+# Fine to have separate H2OinMatrix cols, different filenames between each
+rfrs <- read_csv("made_data/rf_ratios.csv") %>%
+  mutate(H2OinMatrix=ifelse(is.na(H2OinMatrix), H2OInMatrix, H2OinMatrix)) %>%
+  select(-H2OInMatrix) %>%
+  select(compound_name, rf_ratio, cruise) %>%
+  pivot_wider(names_from = cruise, values_from = rf_ratio)
+
+with(rfrs, cor(Falkor, Mesotransect, use="pair"))
+
+ggplot(rfrs, aes(x=Falkor, y=Mesotransect, label=compound_name)) +
+  geom_point()
+plotly::ggplotly()
+rfrs %>%
+  filter(compound_name!="Choline") %>%
+  ggplot(aes(x=Falkor, y=Mesotransect, label=compound_name)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0) +
+  lims(x=c(0, NA), y=c(0, NA)) +
+  coord_fixed()
+```
+

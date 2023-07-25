@@ -1,0 +1,19 @@
+"0","set.seed(20)"
+"0",""
+"0","peri_mat <- peak_data_area_norm %>%"
+"0","  group_by(compound, timepoint, treatment) %>%"
+"0","  mutate(norm_area=rank(area_per_L)) %>%"
+"0","  pivot_wider(id_cols = filename, id_expand = TRUE, names_from = ""compound"", values_from = ""norm_area"") %>%"
+"0","  column_to_rownames(""filename"") %>%"
+"0","  data.matrix()"
+"2","Warning: [38;5;232mValues from `norm_area` are not uniquely identified; output will contain list-cols.
+[36m•[38;5;232m Use `values_fn = list` to suppress this warning.
+[36m•[38;5;232m Use `values_fn = {summary_fun}` to summarise duplicates.
+[36m•[38;5;232m Use the following dplyr code to identify duplicates.
+  {data} %>%
+  dplyr::group_by(filename, compound) %>%
+  dplyr::summarise(n = dplyr::n(), .groups = ""drop"") %>%
+  dplyr::filter(n > 1L)[39m"
+"2","Error in data.matrix(.) : 
+  'list' object cannot be coerced to type 'double'
+"

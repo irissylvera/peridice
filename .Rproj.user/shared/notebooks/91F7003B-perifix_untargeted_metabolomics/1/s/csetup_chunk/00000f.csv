@@ -1,0 +1,195 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"0",""
+"0","library(tidyverse)"
+"0","library(xcms)"
+"0","library(ggplot2)"
+"0","library(RaMS)"
+"2","Registered S3 method overwritten by 'data.table':
+  method           from
+  print.data.table     
+"
+"2","
+Attaching package: ‘RaMS’
+
+"
+"2","The following object is masked from ‘package:dplyr’:
+
+    between
+
+"
+"0","library(data.table)"
+"2","data.table 1.14.8 using 1 threads (see ?getDTthreads).  Latest news: r-datatable.com
+"
+"2","**********
+This installation of data.table has not detected OpenMP support. It should still work but in single-threaded mode.
+This is a Mac. Please read https://mac.r-project.org/openmp/. Please engage with Apple and ask them for support. Check r-datatable.com for updates, and our Mac instructions here: https://github.com/Rdatatable/data.table/wiki/Installation. After several years of many reports of installation problems on Mac, it's time to gingerly point out that there have been no similar problems on Windows or Linux.
+**********
+"
+"2","
+Attaching package: ‘data.table’
+
+"
+"2","The following objects are masked from ‘package:lubridate’:
+
+    hour, isoweek, mday, minute, month, quarter, second, wday, week, yday, year
+
+"
+"2","The following objects are masked from ‘package:dplyr’:
+
+    between, first, last
+
+"
+"2","The following object is masked from ‘package:purrr’:
+
+    transpose
+
+"
+"2","The following objects are masked from ‘package:S4Vectors’:
+
+    first, second
+
+"
+"0","library(readr)"
+"0","library(rstatix)"
+"2","
+Attaching package: ‘rstatix’
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    filter
+
+"
+"0","library(RColorBrewer)"
+"0","library(vegan)"
+"2","Loading required package: permute
+"
+"2","Loading required package: lattice
+"
+"2","
+Attaching package: ‘lattice’
+
+"
+"2","The following object is masked from ‘package:xcms’:
+
+    levelplot
+
+"
+"2","This is vegan 2.6-4
+"
+"2","
+Attaching package: ‘vegan’
+
+"
+"2","The following object is masked from ‘package:xcms’:
+
+    calibrate
+
+"
+"2","The following object is masked from ‘package:ProtGenerics’:
+
+    tolerance
+
+"
+"2","The following object is masked from ‘package:mzR’:
+
+    tolerance
+
+"
+"0","library(dendextend)"
+"2","Registered S3 method overwritten by 'dendextend':
+  method     from 
+  rev.hclust vegan
+"
+"2","
+---------------------
+Welcome to dendextend version 1.17.1
+Type citation('dendextend') for how to cite the package.
+
+Type browseVignettes(package = 'dendextend') for the package vignette.
+The github page is: https://github.com/talgalili/dendextend/
+
+Suggestions and bug-reports can be submitted at: https://github.com/talgalili/dendextend/issues
+You may ask questions at stackoverflow, use the r and dendextend tags: 
+	 https://stackoverflow.com/questions/tagged/dendextend
+
+	To suppress this message use:  suppressPackageStartupMessages(library(dendextend))
+---------------------
+
+"
+"2","
+Attaching package: ‘dendextend’
+
+"
+"2","The following object is masked from ‘package:permute’:
+
+    shuffle
+
+"
+"2","The following object is masked from ‘package:data.table’:
+
+    set
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    cutree
+
+"
+"0","library(factoextra)"
+"2","Welcome! Want to learn more? See two factoextra-related books at https://goo.gl/ve3WBa
+"
+"0","library(broom)"
+"0","library(purrr)"
+"0","library(plotly)"
+"2","Registered S3 method overwritten by 'htmlwidgets':
+  method           from         
+  print.htmlwidget tools:rstudio
+"
+"2","
+Attaching package: ‘plotly’
+
+"
+"2","The following object is masked from ‘package:ggplot2’:
+
+    last_plot
+
+"
+"2","The following object is masked from ‘package:xcms’:
+
+    groups
+
+"
+"2","The following object is masked from ‘package:S4Vectors’:
+
+    rename
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    filter
+
+"
+"2","The following object is masked from ‘package:graphics’:
+
+    layout
+
+"
+"0","library(dplyr)"
+"0","library(ggalluvial)"
+"0","library(readxl)"
+"0","library(magrittr)"
+"2","
+Attaching package: ‘magrittr’
+
+"
+"2","The following object is masked from ‘package:purrr’:
+
+    set_names
+
+"
+"2","The following object is masked from ‘package:tidyr’:
+
+    extract
+
+"

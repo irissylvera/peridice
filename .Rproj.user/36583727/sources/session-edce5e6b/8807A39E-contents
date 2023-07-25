@@ -1,0 +1,264 @@
+---
+title: "peridice_targeted_pipeline"
+author: "Iris Kern"
+date: "2023-07-19"
+output: html_document
+---
+
+# OUTLINE: 
+## Load Data
+## QC
+## BMIS
+## Quantification
+
+Load Data:
+necessary files: Skyline file, ingalls standards sheet, internal standards ALL GOOD
+
+Quality Control:
+S:N, min_area, blk_threshold
+
+BMIS: 
+need to match skyline file to internal standards sheet, with known concentrations. This should be with a window of error for RT, window of error for mz, and name.
+
+Quantification:
+Calculate concentration from internal standards sheet:
+conc / peak area = x / peak area => peak_area_smp * conc_IS / peak_area_IS = conc_smp
+
+
+
+# Libraries
+```{r}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+```
+
+# Load Data
+```{r}
+peak_list <- read_csv('csvs/targeted_peak_list.csv') %>% 
+  mutate(Protein = str_replace(Protein, "HILIC_Pos_Standards", "HILIC")) %>% 
+  rename(Column = Protein) %>% 
+  rename(Precursor.Ion.Name = Peptide) %>% 
+  mutate(Replicate.Name =str_extract(Replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint=str_extract(Replicate, "27June|30June|14July|21July|27July")) %>%
+  rename(Precursor.Mz = `Precursor Mz`) %>%
+  rename(Precursor.Charge = `Precursor Charge`) %>%
+  rename(Product.Mz = `Product Mz`) %>%
+  rename(Product.Charge = `Product Charge`) %>%
+  rename(Frag.Ion = `Fragment Ion`) %>%
+  rename(Retention.Time = `Retention Time`) %>%
+  rename(Peak.Rank = `Peak Rank`) %>%
+  select(-c(Precursor.Charge, Frag.Ion, Peak.Rank)) %>%
+  mutate(Background = as.numeric(as.factor(Background))) %>%
+  mutate(Area = as.numeric(as.factor(Area))) %>%
+  mutate(Retention.Time = as.numeric(as.factor(Retention.Time)))
+
+Ingalls_Standards <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                              stringsAsFactors = FALSE, header = TRUE) %>%
+  # filter(Column == Column.Type) %>%
+  rename(Metabolite.Name = Compound_Name) %>%
+  select(Metabolite.Name, Compound_Type, Concentration_uM, HILIC_Mix, Empirical_Formula) %>% #QE.RF.ratio
+  filter(!is.na(Concentration_uM)) %>%
+  filter(Compound_Type == "Internal Standard") %>%
+  mutate(Concentration_nM = Concentration_uM * 1000) %>%
+  select(-c(Concentration_uM)) %>%
+  rename(Internal_Standards = Metabolite.Name) %>%
+  mutate(Matched_Compounds = Internal_Standards) %>% 
+  mutate(Matched_Compounds = str_remove(Matched_Compounds, ",.*")) %>% 
+  select(-c(HILIC_Mix, Compound_Type, Empirical_Formula))
+```
+
+# Quality control
+## Set parameters
+```{r}
+# QE + TQS QC parameters
+area.min   <- 1000 # peak area minimum - calculated from peak intensity of chromatogram
+RT.flex    <- 0.4 # retention time flexibility - accounts variance across matrices and time on machine
+blk.thresh <- 0.3 # blank sample threshold to calculate difference for samples
+SN.min     <- 4 # signal to noise ratio minimum
+height.min <- 1000 # noise threshold minimum
+height.max <- 1.0e10 # not as significant for Orbitrap, important for TQS
+
+peak_list_qc <- peak_list %>% 
+  filter(Area >= area.min) %>% 
+  mutate(SNratio = Area/Background) %>% 
+  filter(SNratio >= SN.min)
+
+# new column of smp:blk, filter >= 1?
+# for loop that calculates that the sample peak areas are greater than the blanks
+
+```
+
+## Match peak_list to Ingalls_Standards (skyline transition list to internal standards)
+```{r}
+if ("Column" %in% colnames(peak_list)) {
+  Internal_Standards <- read.csv(
+    "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv") %>%
+    filter(Column == "HILIC") %>%
+    filter(Compound_Name %in% peak_list$Precursor.Ion.Name) %>% # tidy this once it's complete
+    rename(Precursor.Ion.Name = Compound_Name) %>%
+    select(Precursor.Ion.Name) %>%
+    unique()
+  peak_list.nostds <- peak_list %>%
+    filter(!str_detect(Replicate.Name, "Std"))
+  peak_list.stds <- peak_list %>%
+    filter(str_detect(Replicate.Name, "Std")) %>%
+    left_join(Internal_Standards)
+    # filter(str_detect(Replicate.Name) | str_detect(Replicate.Name, regex("H2OinMatrix", ignore_case = TRUE))) %>% 
+    # select(-HILICMix)
+  peak_list <- peak_list.stds %>%
+    rbind(peak_list.nostds) %>%
+    arrange(Precursor.Ion.Name)
+}
+```
+
+# Best-Matched Internal Standard (BMIS) 
+## Setup
+```{r}
+# Need to find minimum and maximum retention time for each sample
+RT.table <- peak_list %>%
+  filter(str_detect(Replicate.Name, regex("Std", ignore_case = TRUE))) %>%
+  group_by(Precursor.Ion.Name) %>%
+  mutate(RT.min = min(Retention.Time, na.rm = TRUE)) %>%
+  mutate(RT.max = max(Retention.Time, na.rm = TRUE)) %>%
+  mutate(RT.Reference = mean(Retention.Time, na.rm = TRUE)) %>%
+  select(Precursor.Ion.Name, RT.min, RT.max) %>%
+  unique()
+
+area.table <- peak_list %>%
+  select(Replicate.Name, Precursor.Ion.Name, Area) %>%
+  filter(str_detect(Replicate.Name, regex("Smp|Poo", ignore_case = TRUE)))
+
+SN.table <- peak_list %>%
+  filter(str_detect(Replicate.Name, regex("Smp|Poo", ignore_case = TRUE))) %>%
+  select(Replicate.Name, Precursor.Ion.Name, Area, Background) %>%
+  mutate(Signal.to.Noise = (Area / Background))
+
+blank.table <- peak_list %>%
+    filter(str_detect(Replicate.Name, regex("Blk", ignore_case = TRUE))) %>%
+    select(Precursor.Ion.Name, Area) %>%
+    group_by(Precursor.Ion.Name) %>% 
+    filter(Area == max(Area)) %>%
+    rename(Blank.max = Area) %>%
+    unique()
+```
+
+```{r}
+peak_list_all_flags <- peak_list %>%
+  left_join(RT.table) %>%
+  mutate(RT.Flag = ifelse((Retention.Time >= (RT.max + RT.flex) | Retention.Time <= (RT.min - RT.flex)), 
+                          "RT.Flag", NA)) %>%
+  left_join(blank.table) %>%
+  group_by(Precursor.Ion.Name) %>%
+  mutate(Blank.Reference = Area / Blank.max) %>%
+  mutate(IS_present = ifelse(str_detect(Replicate.Name, ","), "Internal Std", "Non IS")) %>%
+  mutate(blank.Flag = ifelse(((IS_present != "Internal Std") & ((Area / Blank.max) < blk.thresh)), 
+                             "blank.Flag", 
+                             ifelse(((IS_present == "Internal Std") & ((Area / Blank.max) < blk.thresh)),
+                                    "IS.blank.Flag", NA))) %>%
+  mutate(area.min.Flag = ifelse((Area < area.min), "area.min.Flag", NA)) %>%
+  mutate(Area.with.QC   = ifelse(is.na(area.min.Flag), Area, NA)) %>%
+  select(Replicate.Name:Area, Area.with.QC, everything()) %>%
+  left_join(SN.table) %>%
+  mutate(SN.Flag = ifelse((Signal.to.Noise < SN.min), "SN.Flag", NA))
+```
+
+## BMIS
+```{r}
+Internal.Standards <- read.csv("https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                               stringsAsFactors = FALSE, header = TRUE) %>%
+  filter(Compound_Type == "Internal Standard")
+
+QCd.data <- peak_list_all_flags %>%
+  filter(!str_detect(Replicate.Name, "Blk|Std"))
+
+# SampKey <- QCd.data %>%
+#   select(Replicate.Name) %>%
+#   mutate(Area.with.QC = ifelse(str_detect(Replicate.Name, "Half"), 0.5, 1.0)) %>%
+#   mutate(Mass.Feature = "Inj_vol")
+
+SampKey <- QCd.data %>%
+  select(Replicate) %>%
+  mutate(Area.with.QC = ifelse(str_detect(Replicate, "Half"), 0.5, 1.0)) %>%
+  mutate(Mass.Feature = "Inj_vol") %>% 
+  group_by(Replicate)
+
+Int.Stds.data <- QCd.data %>%
+  filter(Precursor.Ion.Name %in% Internal.Standards$Compound_Name)%>%
+  select(Replicate.Name, Precursor.Ion.Name, Area.with.QC) %>%
+  rename(Mass.Feature = Precursor.Ion.Name)
+
+# Int.Stds.data <- QCd.data %>%
+#   filter(Precursor.Ion.Name %in% Internal.Standards$Compound_Name)%>%
+#   select(Replicate, Precursor.Ion.Name, Area.with.QC) %>%
+#   rename(Mass.Feature = Precursor.Ion.Name) %>% 
+#   group_by(Replicate)
+
+Data.NoIS <- QCd.data %>%
+  filter(!Precursor.Ion.Name %in% Internal.Standards$Compound_Name)
+
+Int.Stds.data <- rbind(Int.Stds.data, SampKey) %>%
+  separate(Replicate.Name, into = c("a", "RunType", "c", "d"), sep = "_", remove = FALSE)
+
+# Int.Stds.full.data <- left_join(Int.Stds.data, SampKey, by = "Replicate") %>% 
+#   group_by(Replicate, Mass.Feature.x, Area.with.QC.x) %>% 
+#   distinct(Precursor.Ion.Name)
+```
+
+```{r}
+ggplot(Int.Stds.data, aes(x = Replicate.Name, y = Area.with.QC)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap( ~Mass.Feature, scales = "free_y") +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 10),
+        legend.position = "top",
+        strip.text = element_text(size = 10)) +
+  ggtitle("Internal Standard Raw Areas")
+```
+
+```{r}
+Data.long  <- Data.NoIS %>%
+  rename(Mass.Feature = Precursor.Ion.Name) %>%
+  select(Replicate.Name, Mass.Feature, Area.with.QC) %>%
+  arrange(Replicate.Name)
+
+test_isdata <- as.data.frame(sort(unique(Int.Stds.data$Replicate.Name)))
+test_long <- as.data.frame(sort(unique(Data.long$Replicate.Name)))
+test <- identical(test_isdata[[1]], test_long[[1]])
+```
+
+## Internal Standard Mean Area Calculation
+```{r}
+Int.Stds.means <- Int.Stds.data %>%
+  select(-c("a", "RunType", "c", "d")) %>%
+  group_by(Mass.Feature) %>%
+  summarise(Average.Area = mean(as.numeric(Area.with.QC), na.rm = TRUE))
+
+Data.bound <- rbind(Int.Stds.data %>% select(-c("a", "RunType", "c", "d")), Data.long) %>%
+  arrange(Mass.Feature)
+
+Split_Dat <- list()
+
+for (i in 1:length(unique(Int.Stds.data$Mass.Feature))) {
+  Split_Dat[[i]] <- Data.bound %>%
+    mutate(MIS = unique(Int.Stds.data$Mass.Feature)[i]) %>%
+    left_join(Int.Stds.data %>%
+                rename(MIS = Mass.Feature, IS_Area = Area.with.QC) %>%
+                select(MIS, Replicate.Name, IS_Area), by = c("Replicate.Name", "MIS")) %>%
+    left_join(Int.Stds.means %>%
+                rename(MIS = Mass.Feature), by = "MIS") %>%
+    mutate(Adjusted.Area = Area.with.QC/IS_Area*Average.Area)
+}
+
+Data.area.norm <- do.call(rbind, Split_Dat) %>%
+  select(-IS_Area, -Average.Area)
+```
+
+
+```{r}
+Mydata.new <- Data.area.norm %>%
+  separate(Replicate.Name, c("runDate", "type", "SampID", "replicate"), "_") %>%
+  mutate(Run.Cmpd = paste(Data.area.norm$Replicate.Name, Data.area.norm$Mass.Feature))
+```
+

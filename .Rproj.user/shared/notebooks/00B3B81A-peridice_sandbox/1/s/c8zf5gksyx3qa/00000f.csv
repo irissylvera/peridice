@@ -1,0 +1,2 @@
+"0","peak_data_qc <- peak_data_clean %>% "
+"0","  filter(area >= 1e06)"

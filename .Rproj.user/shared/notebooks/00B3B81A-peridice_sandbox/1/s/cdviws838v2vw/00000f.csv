@@ -1,0 +1,14 @@
+"0","peak_data_norm_good <- peak_data_area_norm %>% 
+  filter(samp_type==""Smp"") %>% 
+  select(compound, filename, area_per_L, mz, rt, treatment, timepoint, date) %>% 
+  filter(compound%in%chosen_feats$feature) %>%
+  group_by(compound, filename) %>%
+  mutate(n=n()) %>%
+  group_by(compound) %>%
+  filter(all(n==1)) %>%
+  ungroup() %>%
+  complete(compound, filename, fill=list(area=0)) %>%
+  select(-n) %>% 
+  mutate()
+"
+"2","Adding missing grouping variables: `replicate`"

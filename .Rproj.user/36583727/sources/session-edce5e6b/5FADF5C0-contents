@@ -1,0 +1,257 @@
+---
+title: "peridice_sandbox"
+author: "Iris Kern"
+date: `date`
+output: html_document
+---
+
+GENERAL IDEAS: Want to explore which treatment had most influence on metabolite composition - could do both unknown and known compounds. Could be interesting to explore how time versus treatment alters metabolite composition?
+
+NEED TO WORK ON:
+Need to do k means clustering with peak area, can do it with targeted/untargeted combined to see what compounds are behaving similarly to known metabolites.
+
+Quantification step of targeted pipeline
+
+Make stacked barplot with percent peak area in each treatment - group by compound, get total peak area, then split by treatment/date and get percentages of metabolite peak area from that. 
+
+NOTES: get from emily: total POC, fcm, species composition, ATP measurements - emailed
+
+# libraries
+```{r}
+library(xcms)
+library(tidyverse)
+library(RaMS)
+library(vegan)
+library(RColorBrewer)
+library(readxl)
+```
+
+
+# metadataframe, env_data, samp_data, filt_data
+```{r}
+source('scripts/dataframe_setup.R')
+```
+
+
+
+# msnexp and peak_data - DON'T RUN UNLESS NECESSARY
+```{r}
+source('scripts/xcms_peak_output.R')
+```
+
+
+```{r}
+peak_data_area_norm <- peak_data_clean %>% 
+  left_join(filt_data, by = join_by(timepoint, treatment, replicate)) %>% 
+  mutate(area_per_L = area/vol_L_filt) %>% 
+  select(-c(`filename.y`)) %>% 
+  rename(filename = `filename.x`) %>% 
+  mutate(treatment = str_extract(treatment, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "14July", "7-14")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "21July", "7-21")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "30June", "6-30")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27July", "7-27")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27June", "6-27")) %>% 
+  mutate(date =as.Date(timepoint, format="%m-%d"))
+  
+chosen_feats <- read_csv("chosen_feats.csv")
+
+peak_data_norm_good <- peak_data_area_norm %>% 
+  filter(samp_type=="Smp") %>% 
+  select(compound, filename, area_per_L, mz, rt, treatment, timepoint, date) %>% 
+  filter(compound%in%chosen_feats$feature) %>%
+  group_by(compound, filename) %>%
+  mutate(n=n()) %>%
+  group_by(compound) %>%
+  filter(all(n==1)) %>%
+  ungroup() %>%
+  complete(compound, filename, fill=list(area=0)) %>%
+  select(-n) %>% 
+  mutate()
+
+write.csv(peak_data_norm_good, file = "csvs/untargeted_peak_list.csv", row.names = FALSE)
+```
+
+
+# NMDS Plot
+```{r}
+set.seed(20)
+
+peri_mat <- peak_data_area_norm %>%
+  group_by(compound, timepoint, treatment) %>%
+  mutate(norm_area=rank(area_per_L)) %>%
+  pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
+  column_to_rownames("filename") %>%
+  data.matrix()
+
+mdsout <- peri_mat %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data <- metadataframe
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("filename") %>%
+  left_join(mds_data) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id), size=4) +
+  scale_color_identity(guide = "legend", ) +
+  theme_bw()
+```
+time as shape
+
+```{r}
+biggest_peaks_clean <- peak_data_norm_good %>% 
+  group_by(treatment, compound) %>%
+  summarise(area_per_L=sum(area_per_L)) %>%
+  arrange(desc(area_per_L)) %>% 
+  do(head(., n = 20)) %>% 
+  na.omit() %>% 
+  ungroup()
+
+write.csv(biggest_peaks_clean, file = "biggest_peaks_clean.csv", row.names = FALSE)
+
+biggest_peaks_clean <- read_csv("biggest_peaks_clean.csv")
+
+biggest_peaks_clean_perc <- biggest_peaks_clean %>% 
+  group_by(compound) %>% 
+  mutate(area_tot = sum(area_per_L)) %>% 
+  ungroup() %>% 
+  group_by(compound, treatment) %>% 
+  mutate(area_perc = area_per_L/area_tot)
+ 
+nb.cols <- 33
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+
+biggest_peaks_clean %>% 
+  group_by(treatment, compound) %>%
+  summarise(area_per_L=sum(area_per_L)) %>%
+  ggplot() +
+  geom_col(aes(x=treatment, y=area_per_L, fill = compound), width = 0.5, 
+           position = "stack") + 
+  scale_fill_manual(values = mycolors) + 
+  ggtitle("Metabolite Composition Across Treatment Groups") + 
+  theme_bw() + 
+  ylab("area per L of sample filtered")
+
+biggest_peaks_clean_perc %>% 
+  ggplot() +
+  geom_col(aes(x=treatment, y=area_perc, fill = compound), width = 0.5, 
+           position = "stack") + 
+  scale_fill_manual(values = mycolors) + 
+  ggtitle("Metabolite Composition Across Treatment Groups") + 
+  theme_bw() + 
+  ylab("area per L of sample filtered")
+```
+percent peak area in each treatment
+
+timeseries of metabolite peak area over time
+```{r}
+peak_data_norm_good %>% 
+  group_by(compound, timepoint, treatment, replicate) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  filter(compound == "FT0546") %>% 
+  ggplot() +
+  # geom_boxplot(aes(x = timepoint, y = area_per_L)) + 
+  geom_boxplot(aes(x = timepoint, y = area_per_L, fill = treatment)) + 
+  scale_fill_manual(values = c("plum2", "lightcoral", "gold", "brown3", "orange", 
+                                "grey50", "mediumpurple", "lightseagreen", "darkslategray2")) + 
+  theme_bw() +
+  scale_y_log10() + 
+  xlab("Sample Date") + 
+  ylab("Peak Area per Liter Filtered (Log 10 Scale)")
+
+```
+
+# Want to look at Phosphocholine, Glycine Betaine, Homarine
+```{r}
+# Phosphocholine 
+
+phosphocholine <- peak_data_area_norm %>% 
+  mutate(mz, str_extract(mz, "184.073")) %>% 
+  na.omit() %>% 
+  group_by(date, treatment, ) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  filter(rt <= "800") %>% 
+  distinct(area_avg)
+
+phosphocholine %>% 
+  ggplot() + 
+  # geom_boxplot(aes(x = timepoint, y = area_per_L)) + 
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  scale_color_manual(values = c("plum2", "lightcoral", "gold", "brown3", "orange", 
+                                "grey50", "mediumpurple", "lightseagreen", "darkslategray2")) + 
+  theme_bw() +
+  xlab("Sample Date") + 
+  ylab("Peak Area per Liter Filtered") + 
+  ggtitle("Phosphocholine Peak Area Timeseries")
+```
+phosphocholine is a phospholipid, contains C,N,P,O. Upregulated in LH (High dose N, P). Spike initially in the ZH (no N, high P) but that dies off after 7/14. ZL, C, ZF (all with no P added) never grow very high. RH consistently grows higher. 
+
+# Homarine
+```{r}
+homarine <- peak_data_area_norm %>% 
+  mutate(mz, str_extract(mz, "138.055")) %>%
+  na.omit() %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>%
+  filter(rt <= "450") %>% 
+  filter(rt >= "300") %>% 
+  ungroup() %>% 
+  group_by(treatment, date, area_per_L) %>% 
+  distinct(area_avg)
+
+ggplot(homarine) + 
+  # geom_boxplot(aes(x = timepoint, y = area_per_L)) + 
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  scale_color_manual(values = c("plum2", "lightcoral", "gold", "brown3", "orange", 
+                                "grey50", "mediumpurple", "lightseagreen", "darkslategray2")) + 
+  theme_bw() +
+  xlab("Sample Date") + 
+  ylab("Peak Area per Liter Filtered") + 
+  ggtitle("Homarine Peak Area Timeseries")
+```
+Homarine - contains N,C,O. Highest in RH (high dose of N,P in Redfield ratio), spikes in C (why), dies in RL, consistent in LL
+
+
+# Glycine Betaine
+```{r}
+glycine_betaine <- peak_data_area_norm %>% 
+  mutate(mz, str_extract(mz, "118.086")) %>%
+  na.omit() %>% 
+  select(-c(filename, replicate)) %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  filter(rt <= "500") %>%
+  filter(rt >= "400") %>% 
+  select(c(treatment, date, area_avg)) %>% 
+  distinct(area_avg)
+
+ggplot(glycine_betaine) + 
+  # geom_boxplot(aes(x = timepoint, y = area_per_L, fill = treatment)) + 
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  scale_color_manual(values = c("plum2", "lightcoral", "gold", "brown3", "orange", "grey50", 
+                                "mediumpurple", "lightseagreen", "darkslategray2")) + 
+  theme_bw() +
+  xlab("Sample Date") + 
+  ylab("Peak Area per Liter Filtered") + 
+  ggtitle("Glycine Betaine Peak Area Timeseries") 
+```
+Glycine betaine - contains N,C,O. Highest in LH (high N, high P) second highest is RH (Redfield High N,P).
+
+```{r}
+
+```
+
+
