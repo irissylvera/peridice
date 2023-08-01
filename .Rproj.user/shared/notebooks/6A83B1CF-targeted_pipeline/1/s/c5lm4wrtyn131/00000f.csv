@@ -1,8 +1,0 @@
-"0","Data.long  <- Data.NoIS %>%"
-"0","  rename(Mass.Feature = Precursor.Ion.Name) %>%"
-"0","  select(Replicate.Name, Mass.Feature, Area.with.QC) %>%"
-"0","  arrange(Replicate.Name)"
-"0",""
-"0","test_isdata <- as.data.frame(sort(unique(Int.Stds.data$Replicate.Name)))"
-"0","test_long <- as.data.frame(sort(unique(Data.long$Replicate.Name)))"
-"0","test <- identical(test_isdata[[1]], test_long[[1]])"

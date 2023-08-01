@@ -10,44 +10,31 @@ raw_data <- as.data.frame(raw_data) %>%
 metadataframe <- raw_data %>%
   # Grab just the unique filenames and rename the column
   distinct(filename=`raw_data`) %>%
+  mutate(filename = str_remove(filename, "HILICpos//230616_")) %>% 
   # Extract treatment information from the filename
   # Longest one needs to go first!")) %>%
   # Create a new column with timepoint information
-  mutate(treatment = str_extract(filename, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(treatment = str_extract(filename, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
   mutate(timepoint=str_extract(filename, "27June|30June|14July|21July|27July")) %>%
+  mutate(replicate = str_extract(filename, "\\d.mzML")) %>% 
+  mutate(replicate = str_remove(replicate, ".mzML")) %>% 
   # Create a new column with sample type information
   mutate(samp_type=str_extract(filename, "Blk|Smp|Std|Poo")) %>%
   #mutate(treatment=ifelse(samp_type=="Poo", NA, treatment)) %>% 
-  mutate(colid = treatment) %>% 
-  mutate(filename = str_remove(filename, "HILICpos//230616_"))
+  mutate(colid = levels(treatment)) %>% 
+  group_by(timepoint, treatment, replicate)
   
 
-env_data <- raw_data %>%
-  # Grab just the unique filenames and rename the column
-  distinct(filename=`raw_data`) %>%
-  # Create a new column with sample type information
-  mutate(samp_type=str_extract(filename, "Blk|Smp|Std|Poo")) %>%
-  # Create a new column with timepoint information
-  mutate(timepoint=str_extract(filename, "27June|30June|14July|21July|27July")) %>%
-  # Extract treatment information from the filename
-  # Longest one needs to go first!
-  mutate(treatment=str_extract(filename, "Std|Poo|Blk|-C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote3|Tote4")) %>%
-  mutate(treatment = str_remove(treatment, "-")) %>% 
-  # Replace accidental "P" treaments from "Pooled" with NAs
-  # mutate(filename = str_remove(filename,"27June-|30June-|14July-|21July-|27July-")) %>% 
-  mutate(replicate = str_extract(filename, "\\d.mzML")) %>% 
-  mutate(replicate = str_remove(replicate, ".mzML")) %>% 
-  mutate(filename = str_remove(filename, "HILICpos//230616_"))
+env_data <- metadataframe
 
 samp_notes <- read_xlsx("PERIDICE_sample_notes.xlsx") %>% 
-  mutate(treatment = str_extract(treatment, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote3|Tote4")) %>% 
+  mutate(treatment = str_extract(treatment, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
   select(-c(init, notes, sample_collection_date)) %>%  
   dplyr::rename(timepoint = date) %>% 
-  mutate(replicate = as.character(replicate)) %>% 
-  group_by(timepoint, treatment, replicate)
+  mutate(replicate = as.character(replicate)) 
 
 filt_data <- env_data %>% 
-  full_join(samp_notes)
+  left_join(samp_notes) 
 
 write.csv(filt_data, file = "csvs/filt_data.csv", row.names = FALSE)
 

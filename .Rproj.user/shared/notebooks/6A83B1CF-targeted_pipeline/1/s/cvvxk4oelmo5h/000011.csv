@@ -11,18 +11,26 @@
 "0","  rename(Frag.Ion = `Fragment Ion`) %>%"
 "0","  rename(Retention.Time = `Retention Time`) %>%"
 "0","  rename(Peak.Rank = `Peak Rank`) %>%"
+"0","  mutate(num_area = as.numeric(Area)) %>% "
+"0","  mutate(num_background = as.numeric(Background)) %>% "
 "0","  select(-c(Precursor.Charge, Frag.Ion, Peak.Rank)) %>%"
-"0","  mutate(Background = as.numeric(as.factor(Background))) %>%"
-"0","  mutate(Area = as.numeric(as.factor(Area))) %>%"
 "0","  mutate(Retention.Time = as.numeric(as.factor(Retention.Time)))"
 "2","[1mRows: [22m[34m15375[39m [1mColumns: [22m[34m12[39m"
-"2","[36m──[39m [1mColumn specification[22m [36m───────────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
+"2","[36m──[39m [1mColumn specification[22m [36m──────────────────────────────────────────────────────────────────────────────────────────────────────────────[39m
 [1mDelimiter:[22m "",""
 [31mchr[39m (8): Peptide, Protein, Replicate, Fragment Ion, Retention Time, Area, Background, Peak Rank
 [32mdbl[39m (4): Precursor Mz, Precursor Charge, Product Mz, Product Charge"
 "2","
 [36mℹ[39m Use `spec()` to retrieve the full column specification for this data.
 [36mℹ[39m Specify the column types or set `show_col_types = FALSE` to quiet this message."
+"2","Warning: [38;5;232mThere was 1 warning in `mutate()`.[39m
+[38;5;232m[36mℹ[38;5;232m In argument: `num_area = as.numeric(Area)`.[39m
+Caused by warning:
+[33m![39m NAs introduced by coercion"
+"2","Warning: [38;5;232mThere was 1 warning in `mutate()`.[39m
+[38;5;232m[36mℹ[38;5;232m In argument: `num_background = as.numeric(Background)`.[39m
+Caused by warning:
+[33m![39m NAs introduced by coercion"
 "0","Ingalls_Standards <- read.csv("
 "0","  ""https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv"","
 "0","                              stringsAsFactors = FALSE, header = TRUE) %>%"

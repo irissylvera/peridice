@@ -28,7 +28,6 @@ conc / peak area = x / peak area => peak_area_smp * conc_IS / peak_area_IS = con
 
 # Libraries
 ```{r}
-library(readr)
 library(tidyverse)
 library(ggplot2)
 ```
@@ -48,10 +47,11 @@ peak_list <- read_csv('csvs/targeted_peak_list.csv') %>%
   rename(Frag.Ion = `Fragment Ion`) %>%
   rename(Retention.Time = `Retention Time`) %>%
   rename(Peak.Rank = `Peak Rank`) %>%
+  mutate(num_area = as.numeric(Area)) %>% 
+  mutate(num_background = as.numeric(Background)) %>% 
   select(-c(Precursor.Charge, Frag.Ion, Peak.Rank)) %>%
-  mutate(Background = as.numeric(as.factor(Background))) %>%
-  mutate(Area = as.numeric(as.factor(Area))) %>%
   mutate(Retention.Time = as.numeric(as.factor(Retention.Time)))
+
 
 Ingalls_Standards <- read.csv(
   "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
@@ -79,11 +79,6 @@ blk.thresh <- 0.3 # blank sample threshold to calculate difference for samples
 SN.min     <- 4 # signal to noise ratio minimum
 height.min <- 1000 # noise threshold minimum
 height.max <- 1.0e10 # not as significant for Orbitrap, important for TQS
-
-peak_list_qc <- peak_list %>% 
-  filter(Area >= area.min) %>% 
-  mutate(SNratio = Area/Background) %>% 
-  filter(SNratio >= SN.min)
 
 # new column of smp:blk, filter >= 1?
 # for loop that calculates that the sample peak areas are greater than the blanks
@@ -118,7 +113,7 @@ if ("Column" %in% colnames(peak_list)) {
 ```{r}
 # Need to find minimum and maximum retention time for each sample
 RT.table <- peak_list %>%
-  filter(str_detect(Replicate.Name, regex("Std", ignore_case = TRUE))) %>%
+  filter(str_detect(Replicate, regex("Std", ignore_case = TRUE))) %>%
   group_by(Precursor.Ion.Name) %>%
   mutate(RT.min = min(Retention.Time, na.rm = TRUE)) %>%
   mutate(RT.max = max(Retention.Time, na.rm = TRUE)) %>%
@@ -127,20 +122,20 @@ RT.table <- peak_list %>%
   unique()
 
 area.table <- peak_list %>%
-  select(Replicate.Name, Precursor.Ion.Name, Area) %>%
-  filter(str_detect(Replicate.Name, regex("Smp|Poo", ignore_case = TRUE)))
+  select(Replicate, Precursor.Ion.Name, num_area) %>%
+  filter(str_detect(Replicate, regex("Smp|Poo", ignore_case = TRUE)))
 
 SN.table <- peak_list %>%
-  filter(str_detect(Replicate.Name, regex("Smp|Poo", ignore_case = TRUE))) %>%
-  select(Replicate.Name, Precursor.Ion.Name, Area, Background) %>%
-  mutate(Signal.to.Noise = (Area / Background))
+  filter(str_detect(Replicate, regex("Smp|Poo", ignore_case = TRUE))) %>%
+  select(Replicate, Precursor.Ion.Name, num_area, num_background) %>%
+  mutate(Signal.to.Noise = (num_area / num_background))
 
 blank.table <- peak_list %>%
     filter(str_detect(Replicate.Name, regex("Blk", ignore_case = TRUE))) %>%
-    select(Precursor.Ion.Name, Area) %>%
+    select(Precursor.Ion.Name, num_area) %>%
     group_by(Precursor.Ion.Name) %>% 
-    filter(Area == max(Area)) %>%
-    rename(Blank.max = Area) %>%
+    filter(num_area == max(num_area)) %>%
+    rename(Blank.max = num_area) %>%
     unique()
 ```
 
@@ -151,15 +146,15 @@ peak_list_all_flags <- peak_list %>%
                           "RT.Flag", NA)) %>%
   left_join(blank.table) %>%
   group_by(Precursor.Ion.Name) %>%
-  mutate(Blank.Reference = Area / Blank.max) %>%
+  mutate(Blank.Reference = num_area / Blank.max) %>%
   mutate(IS_present = ifelse(str_detect(Replicate.Name, ","), "Internal Std", "Non IS")) %>%
-  mutate(blank.Flag = ifelse(((IS_present != "Internal Std") & ((Area / Blank.max) < blk.thresh)), 
+  mutate(blank.Flag = ifelse(((IS_present != "Internal Std") & ((num_area / Blank.max) < blk.thresh)), 
                              "blank.Flag", 
-                             ifelse(((IS_present == "Internal Std") & ((Area / Blank.max) < blk.thresh)),
+                             ifelse(((IS_present == "Internal Std") & ((num_area / Blank.max) < blk.thresh)),
                                     "IS.blank.Flag", NA))) %>%
-  mutate(area.min.Flag = ifelse((Area < area.min), "area.min.Flag", NA)) %>%
-  mutate(Area.with.QC   = ifelse(is.na(area.min.Flag), Area, NA)) %>%
-  select(Replicate.Name:Area, Area.with.QC, everything()) %>%
+  mutate(area.min.Flag = ifelse((num_area < area.min), "area.min.Flag", NA)) %>%
+  mutate(Area.with.QC   = ifelse(is.na(area.min.Flag), num_area, NA)) %>%
+  select(Replicate:num_area, Area.with.QC, everything()) %>%
   left_join(SN.table) %>%
   mutate(SN.Flag = ifelse((Signal.to.Noise < SN.min), "SN.Flag", NA))
 ```
@@ -170,36 +165,24 @@ Internal.Standards <- read.csv("https://raw.githubusercontent.com/IngallsLabUW/I
                                stringsAsFactors = FALSE, header = TRUE) %>%
   filter(Compound_Type == "Internal Standard")
 
-QCd.data <- peak_list_all_flags %>%
-  filter(!str_detect(Replicate.Name, "Blk|Std"))
-
-# SampKey <- QCd.data %>%
-#   select(Replicate.Name) %>%
-#   mutate(Area.with.QC = ifelse(str_detect(Replicate.Name, "Half"), 0.5, 1.0)) %>%
-#   mutate(Mass.Feature = "Inj_vol")
+QCd.data <- peak_list_all_flags %>% 
+  filter(!str_detect(Replicate, "Blk|Std"))
 
 SampKey <- QCd.data %>%
   select(Replicate) %>%
   mutate(Area.with.QC = ifelse(str_detect(Replicate, "Half"), 0.5, 1.0)) %>%
-  mutate(Mass.Feature = "Inj_vol") %>% 
-  group_by(Replicate)
+  mutate(Mass.Feature = "Inj_vol")
 
 Int.Stds.data <- QCd.data %>%
   filter(Precursor.Ion.Name %in% Internal.Standards$Compound_Name)%>%
-  select(Replicate.Name, Precursor.Ion.Name, Area.with.QC) %>%
+  select(Replicate, Precursor.Ion.Name, Area.with.QC) %>%
   rename(Mass.Feature = Precursor.Ion.Name)
-
-# Int.Stds.data <- QCd.data %>%
-#   filter(Precursor.Ion.Name %in% Internal.Standards$Compound_Name)%>%
-#   select(Replicate, Precursor.Ion.Name, Area.with.QC) %>%
-#   rename(Mass.Feature = Precursor.Ion.Name) %>% 
-#   group_by(Replicate)
 
 Data.NoIS <- QCd.data %>%
   filter(!Precursor.Ion.Name %in% Internal.Standards$Compound_Name)
 
 Int.Stds.data <- rbind(Int.Stds.data, SampKey) %>%
-  separate(Replicate.Name, into = c("a", "RunType", "c", "d"), sep = "_", remove = FALSE)
+  separate(Replicate, into = c("a", "RunType", "c", "d"), sep = "_", remove = FALSE)
 
 # Int.Stds.full.data <- left_join(Int.Stds.data, SampKey, by = "Replicate") %>% 
 #   group_by(Replicate, Mass.Feature.x, Area.with.QC.x) %>% 
@@ -207,21 +190,68 @@ Int.Stds.data <- rbind(Int.Stds.data, SampKey) %>%
 ```
 
 ```{r}
-ggplot(Int.Stds.data, aes(x = Replicate.Name, y = Area.with.QC)) +
-  geom_bar(stat = "identity", position = "dodge") +
+
+Int.Stds.data %>% 
+  # filter(RunType == "Poo") %>% 
+  ggplot() + 
+  geom_bar(aes(x = Replicate, y = Area.with.QC, color = RunType), stat = "identity", position = "dodge")  +
   facet_wrap( ~Mass.Feature, scales = "free_y") +
   theme(axis.text.x = element_blank(),
         axis.text.y = element_text(size = 10),
         legend.position = "top",
         strip.text = element_text(size = 10)) +
-  ggtitle("Internal Standard Raw Areas")
+  ggtitle("Internal Standard Raw Areas") 
+
 ```
 
 ```{r}
-Data.long  <- Data.NoIS %>%
-  rename(Mass.Feature = Precursor.Ion.Name) %>%
-  select(Replicate.Name, Mass.Feature, Area.with.QC) %>%
-  arrange(Replicate.Name)
+data.long  <- Data.NoIS %>%
+  rename(metabolite = Precursor.Ion.Name) %>%
+  select(Replicate, metabolite, Area.with.QC) %>%
+  filter(str_detect(Replicate, "Poo")) %>%
+  group_by(Replicate) %>%
+  rename(poo_area = Area.with.QC) %>% 
+  na.omit()
+
+is_areas <- Int.Stds.data %>%
+  filter(str_detect(Replicate, "Poo")) %>%
+  filter(!str_detect(Mass.Feature, "Inj_vol")) %>%
+  select(-c(Precursor.Ion.Name, a, RunType, c, d)) %>%
+  group_by(Replicate) %>%
+  rename(int_area = Area.with.QC) %>% 
+  rename(internal_standard = Mass.Feature) %>% 
+  group_by(internal_standard) %>% 
+  mutate(avg_is_area = mean(int_area))
+
+bmis_areas <- data.long %>% 
+  left_join(is_areas, by = c("Replicate")) %>% 
+  mutate(area_per_is = poo_area/int_area*avg_is_area) %>%  
+  arrange(area_per_is) %>% 
+  group_by(Replicate, metabolite) %>% 
+  slice(1) %>% 
+  mutate(bmis = internal_standard)
+
+bmis_data <- bmis_areas %>% 
+  
+
+# data_long_poo <- Data.NoIS %>%
+#   filter(str_detect(Replicate, "Poo")) %>%
+#   select(Replicate, Precursor.Ion.Name, num_area) %>%
+#   pivot_wider(names_from = Precursor.Ion.Name, values_from = num_area)
+# 
+# is_areas <- Int.Stds.data %>%
+#   filter(str_detect(Replicate, "Poo")) %>%
+#   filter(!str_detect(Mass.Feature, "Inj_vol")) %>%
+#   select(-c(Precursor.Ion.Name, a, RunType, c, d)) %>%
+#   pivot_wider(names_from = Mass.Feature, values_from = Area.with.QC)
+
+
+# need to calculate mean areas and then calculate the variance (RSD) by QCd area / IntStds area x avgIntStds area
+
+# calculate QCd area / IS area then select smallest value
+
+poo_is_area <- data_long_poo %>% 
+  
 
 test_isdata <- as.data.frame(sort(unique(Int.Stds.data$Replicate.Name)))
 test_long <- as.data.frame(sort(unique(Data.long$Replicate.Name)))

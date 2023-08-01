@@ -3,3 +3,5 @@ xcms_output/
 Skyline
 *.sky
 *sky.view
+.Rproj.user
+csvs/

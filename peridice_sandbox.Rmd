@@ -24,6 +24,7 @@ library(RaMS)
 library(vegan)
 library(RColorBrewer)
 library(readxl)
+library(plotly)
 ```
 
 
@@ -39,7 +40,7 @@ source('scripts/dataframe_setup.R')
 source('scripts/xcms_peak_output.R')
 ```
 
-
+# Normalization by volume filtered
 ```{r}
 peak_data_area_norm <- peak_data_clean %>% 
   left_join(filt_data, by = join_by(timepoint, treatment, replicate)) %>% 
@@ -54,7 +55,7 @@ peak_data_area_norm <- peak_data_clean %>%
   mutate(timepoint = str_replace_all(timepoint, "27June", "6-27")) %>% 
   mutate(date =as.Date(timepoint, format="%m-%d"))
   
-chosen_feats <- read_csv("chosen_feats.csv")
+chosen_feats <- read_csv("csvs/chosen_feats.csv")
 
 peak_data_norm_good <- peak_data_area_norm %>% 
   filter(samp_type=="Smp") %>% 
@@ -65,27 +66,202 @@ peak_data_norm_good <- peak_data_area_norm %>%
   group_by(compound) %>%
   filter(all(n==1)) %>%
   ungroup() %>%
-  complete(compound, filename, fill=list(area=0)) %>%
-  select(-n) %>% 
-  mutate()
+  complete(compound, filename, fill=list(area=0)) %>% 
+  select(-n)
 
 write.csv(peak_data_norm_good, file = "csvs/untargeted_peak_list.csv", row.names = FALSE)
 ```
 
+# Normalization to chlorophyll and POC
+```{r}
+
+```
+
+
 
 # NMDS Plot
+## averaged by replicate
 ```{r}
 set.seed(20)
 
-peri_mat <- peak_data_area_norm %>%
-  group_by(compound, timepoint, treatment) %>%
+peak_data_nmds <- peak_data_area_norm %>% 
+  arrange(desc(area_per_L)) %>% 
+  group_by(compound, filename) %>% 
+  mutate(filename = str_remove(filename, "\\d.mzML")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  # summarise(n=n()) %>% 
+  # filter(n > 1)
+  slice(1)
+
+peak_data_nmds <- peak_data_nmds %>% 
+  group_by(compound, treatment, timepoint) %>% 
+  mutate(avg_area_per_L = mean(area_per_L))
+  # distinct(avg_area_per_L)
+
+# peak_data_nmds <- peak_data_nmds %>% 
+#   ungroup() %>% 
+#   complete(compound, filename) %>% 
+#   # filter(is.na(area_per_L)) %>% 
+#   mutate(area_per_L = replace_na(area_per_L, 0))
+
+peak_data_nmds <- peak_data_nmds %>% 
+  ungroup() %>% 
+  group_by(compound, filename) %>% 
+  distinct(avg_area_per_L) 
+
+peak_data_nmds <- peak_data_nmds %>% 
+  ungroup() %>% 
+  # filter(is.na(area_per_L)) %>% 
+  complete(compound, filename) %>%
+  mutate(avg_area_per_L = replace_na(avg_area_per_L, 0)) %>% 
+  mutate(avg_area_per_L = as.character(avg_area_per_L)) 
+
+peri_mat <- peak_data_nmds %>%
+  group_by(compound) %>%
+  mutate(norm_area=rank(avg_area_per_L)) %>%
+  pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
+  column_to_rownames("filename") %>%
+  data.matrix()
+
+# peak_data_nmds %>%
+#   filter(compound == "FT1440") %>%
+#   ggplot() +
+#   geom_col(aes(x = filename, y = area_per_L))
+# 
+# peri_mat %>%
+#   filter(compound == "FT1440") %>%
+#   ggplot() +
+#   geom_col(aes(x = filename, y = norm_area))
+
+mdsout <- peri_mat %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data <- metadataframe %>% 
+  mutate(filename = str_remove(filename, "\\d.mzML")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  mutate(filename = str_remove(filename, "_"))
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("filename") %>%
+  left_join(mds_data) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, label = filename, shape = timepoint), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend",labels = c("Redfield Ratio - High N:P", "No N + Low P", 
+                                                                        "Low N:P, Low Dose", "T0 - No Added Nutrients", 
+                                                                        "Low N:P, High Dose", "No N + High P", "High P, No Fe", 
+                                                                        "Redfield Ratio - Low N:P", "Control")) +
+  theme_bw() + 
+  ggtitle("NMDS Plot of Entire PERI-DICE Dataset")
+```
+
+```{r}
+mess_nmds <- peak_data_norm_good %>% 
+  arrange(desc(area_per_L)) %>% 
+  group_by(compound, filename) %>% 
+  mutate(filename = str_remove(filename, "\\d.mzML")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  # summarise(n=n()) %>% 
+  # filter(n > 1)
+  slice(1) 
+
+mess_nmds <- mess_nmds %>% 
+  group_by(compound, treatment, timepoint) %>% 
+  mutate(avg_area_per_L = mean(area_per_L))
+
+mess_nmds <- mess_nmds %>% 
+  ungroup() %>% 
+  # filter(is.na(area_per_L)) %>% 
+  complete(compound, filename) %>%
+  mutate(avg_area_per_L = replace_na(avg_area_per_L, 0)) %>% 
+  mutate(avg_area_per_L = as.character(avg_area_per_L)) 
+
+mess_mat <- mess_nmds %>%
+  group_by(compound) %>%
+  mutate(norm_area=rank(avg_area_per_L)) %>%
+  pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
+  column_to_rownames("filename") %>%
+  data.matrix()
+
+mess <- mess_nmds %>%
+  group_by(compound) %>%
   mutate(norm_area=rank(area_per_L)) %>%
   pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
   column_to_rownames("filename") %>%
   data.matrix()
 
-mdsout <- peri_mat %>%
-  metaMDS(k = 2, autotransform = FALSE)
+messout <- mess %>%
+  metaMDS(k = 2, autotransform = FALSE, distance = "euclidean")
+
+mess_data <- metadataframe %>% 
+  mutate(filename = str_remove(filename, "\\d.mzML")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  mutate(filename = str_remove(filename, "_"))
+
+messout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("filename") %>%
+  left_join(mess_data) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, label = filename, shape = timepoint), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend", labels = c("Redfield Ratio - High N:P", "No N + Low P", 
+                                                                        "Low N:P, Low Dose", "T0 - No Added Nutrients", 
+                                                                        "Low N:P, High Dose", "No N + High P", "High P, No Fe", 
+                                                                        "Redfield Ratio - Low N:P", "Control")) +
+  scale_shape_discrete(breaks = c("27June", "30June", "14July", "21July", "27July")) +
+  theme_bw() + 
+  ggtitle("NMDS Plot of Selected Good Peaks")
+```
+
+## not averaged by replicate
+```{r}
+peak_data_nmds <- peak_data_area_norm %>% 
+  arrange(desc(area_per_L)) %>% 
+  group_by(compound, filename) %>% 
+  # summarise(n=n()) %>% 
+  # filter(n > 1)
+  slice(1) 
+
+peak_data_nmds <- peak_data_nmds %>% 
+  ungroup() %>% 
+  complete(compound, filename) %>% 
+  # filter(is.na(area_per_L)) %>% 
+  mutate(area_per_L = replace_na(area_per_L, 0))
+
+
+peak_data_nmds <- peak_data_nmds %>%
+  group_by(compound) %>%
+  mutate(norm_area=rank(area_per_L)) %>%
+  pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
+  column_to_rownames("filename") %>%
+  data.matrix()
+
+mdsout <- peak_data_nmds %>%
+  metaMDS(k = 2, autotransform = FALSE, distance = "euclidean")
 
 mds_data <- metadataframe
 
@@ -105,11 +281,162 @@ mdsout$points %>%
     TRUE~"grey50"
   )) %>%
   ggplot() +
-  geom_point(aes(x=MDS1, y=MDS2, color=col_id), size=4) +
-  scale_color_identity(guide = "legend", ) +
-  theme_bw()
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, label = filename, shape = timepoint), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend", labels = c("Redfield Ratio - High N:P", "No N + Low P", 
+                                                                        "Low N:P, Low Dose", "T0 - No Added Nutrients", 
+                                                                        "Low N:P, High Dose", "No N + High P", "High P, No Fe", 
+                                                                        "Redfield Ratio - Low N:P", "Control")) +
+  theme_bw() + 
+  ggtitle("NMDS Plot of Entire PERI-DICE Dataset")
 ```
-time as shape
+
+
+```{r}
+mess_nmds <- peak_data_norm_good %>% 
+  arrange(desc(area_per_L)) %>% 
+  group_by(compound, filename) %>% 
+  # summarise(n=n()) %>% 
+  # filter(n > 1)
+  slice(1) 
+
+mess_nmds <- mess_nmds %>% 
+  ungroup() %>% 
+  complete(compound, filename) %>% 
+  # filter(is.na(area_per_L)) %>% 
+  mutate(area_per_L = replace_na(area_per_L, 0))
+
+
+mess <- mess_nmds %>%
+  group_by(compound) %>%
+  mutate(norm_area=rank(area_per_L)) %>%
+  pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
+  column_to_rownames("filename") %>%
+  data.matrix()
+
+messout <- mess %>%
+  metaMDS(k = 2, autotransform = FALSE, distance = "euclidean")
+
+mess_data <- metadataframe
+
+messout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("filename") %>%
+  left_join(mess_data) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, label = filename, shape = timepoint), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend", labels = c("Redfield Ratio N:P, High N:P", "No N + Low P",
+                                                                        "Low N:P, Low Dose", "T0 - No Added Nutrients",
+                                                                        "Low N:P, High Dose", "No N + High P", "No N + High P + No Fe",
+                                                                        "Redfield Ratio N:P, Low N:P", "Control")) +
+  scale_shape_discrete(breaks = c("27June", "30June", "14July", "21July", "27July")) +
+  theme_bw() + 
+  ggtitle("NMDS Plot of Selected Good Peaks")
+
+```
+
+# NMDS with targeted data
+```{r}
+targ_data_qc <- read_csv("csvs/targ_data_qc.csv") %>% 
+  mutate(filename = str_remove(filename, "Smp_")) %>% 
+  mutate(filename = str_remove(filename, "_\\d"))
+
+filt_data_targ <- filt_data %>% 
+  mutate(filename = str_remove(filename, ".mzML")) %>% 
+  group_by(treatment, timepoint, replicate)
+
+targ_data <- read_csv("csvs/targeted_peak_list.csv") %>% 
+  select(Peptide, Replicate, `Precursor Mz`, `Retention Time`, Area) %>% 
+  rename(compound = Peptide) %>% 
+  rename(filename = Replicate) %>% 
+  rename(mz = `Precursor Mz`) %>% 
+  rename(rt = `Retention Time`) %>% 
+  rename(area = Area) %>% 
+  mutate(replicate = str_extract(filename, "\\d$")) %>% 
+  mutate(replicate = str_remove(replicate, ".mzML")) %>% 
+  mutate(filename = str_remove(filename, "230616_")) %>% 
+  mutate(timepoint = str_extract(filename, "27June|30June|14July|21July|27July")) %>% 
+  mutate(treatment = str_extract(filename, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
+  group_by(treatment, timepoint, replicate)
+
+targ_data <- targ_data %>% 
+  left_join(filt_data_targ) %>% 
+  mutate(area = as.numeric(area))
+
+targ_data <- targ_data %>% 
+  mutate(area_per_L = area/vol_L_filt)
+```
+
+```{r}
+targ_nmds <- targ_data %>% 
+  arrange(desc(area_per_L)) %>% 
+  group_by(compound, filename) %>% 
+  filter(samp_type == "Smp") %>% 
+  mutate(filename = str_remove(filename, "Smp_")) %>% 
+  mutate(filename = str_remove(filename, "_\\d$")) %>% 
+  # summarise(n=n()) %>% 
+  # filter(n > 1)
+  slice(1) 
+
+targ_nmds <- targ_nmds %>% 
+  ungroup() %>% 
+  complete(compound, filename) %>% 
+  # filter(is.na(area_per_L)) %>% 
+  mutate(area_per_L = replace_na(area_per_L, 0))
+
+
+targ_mat <- targ_nmds %>%
+  group_by(compound) %>%
+  mutate(norm_area=rank(area_per_L)) %>%
+  pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
+  column_to_rownames("filename") %>%
+  data.matrix()
+
+targout <- targ_mat %>%
+  metaMDS(k = 2, autotransform = FALSE, distance = "euclidean")
+
+targ_met <- metadataframe %>% 
+  mutate(filename = str_remove(filename, "\\d.mzML")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  mutate(filename = str_remove(filename, "_")) %>% 
+  mutate(filename = str_remove(filename, "Blk|Smp|Std"))
+
+targout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("filename") %>%
+  left_join(targ_met) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, label = filename, shape = timepoint), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend", labels = c("Redfield Ratio N:P, High N:P", "No N + Low P",
+                                                                        "Low N:P, Low Dose", "T0 - No Added Nutrients",
+                                                                        "Low N:P, High Dose", "No N + High P", "No N + High P + No Fe",
+                                                                        "Redfield Ratio N:P, Low N:P", "Control")) +
+  scale_shape_discrete(breaks = c("27June", "30June", "14July", "21July", "27July")) +
+  theme_bw() + 
+  ggtitle("NMDS Plot of Targeted Data")
+```
+
 
 ```{r}
 biggest_peaks_clean <- peak_data_norm_good %>% 
@@ -159,12 +486,12 @@ percent peak area in each treatment
 timeseries of metabolite peak area over time
 ```{r}
 peak_data_norm_good %>% 
-  group_by(compound, timepoint, treatment, replicate) %>% 
+  group_by(compound, date, treatment, replicate) %>% 
   mutate(area_avg = mean(area_per_L)) %>% 
   filter(compound == "FT0546") %>% 
   ggplot() +
   # geom_boxplot(aes(x = timepoint, y = area_per_L)) + 
-  geom_boxplot(aes(x = timepoint, y = area_per_L, fill = treatment)) + 
+  geom_boxplot(aes(x = as.factor(date), y = area_per_L, fill = treatment)) + 
   scale_fill_manual(values = c("plum2", "lightcoral", "gold", "brown3", "orange", 
                                 "grey50", "mediumpurple", "lightseagreen", "darkslategray2")) + 
   theme_bw() +
@@ -251,7 +578,18 @@ ggplot(glycine_betaine) +
 Glycine betaine - contains N,C,O. Highest in LH (high N, high P) second highest is RH (Redfield High N,P).
 
 ```{r}
-
+glycine_betaine %>% 
+  ungroup() %>% 
+  # mutate(norm_area = rank(area_per_L)) %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = timepoint, y = area_per_L, fill = treatment)) + 
+  # geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  scale_fill_manual(values = c("plum2", "lightcoral", "gold", "brown3", "orange", "grey50", 
+                                "mediumpurple", "lightseagreen", "darkslategray2")) + 
+  theme_bw() +
+  xlab("Sample Date") + 
+  ylab("Peak Area per Liter Filtered") + 
+  ggtitle("Glycine Betaine Peak Area Timeseries")
 ```
 
 

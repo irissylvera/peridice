@@ -1,9 +1,12 @@
 library(tidyverse)
 
+# load in untargeted peak list of chosen feats
 untargeted_peak_list <- read_csv("csvs/untargeted_peak_list.csv")
 
+# load in targeted peak list
 targeted_peak_list <- read_csv("csvs/targeted_peak_list.csv")
 
+# load in filtering metadata generated in dataframe setup
 filt_data <- read_csv("csvs/filt_data.csv")
 
 untarg_peak_tidy <- untargeted_peak_list %>% 
@@ -65,3 +68,5 @@ targ_data_qc <- read_csv("csvs/targ_data_qc.csv")
 
 all_peaks_stats <- targ_data_qc %>% 
   rbind(untarg_peak_tidy)
+
+write.csv(all_peaks_stats, file = "csvs/all_peaks_stats.csv", row.names = FALSE)
