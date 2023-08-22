@@ -1,0 +1,24 @@
+---
+title: "metadata"
+author: "Iris Kern"
+date: "2023-08-03"
+output: html_document
+---
+```{r}
+library(readxl)
+library(tidyverse)
+```
+
+```{r}
+pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
+  select(Tank, Treatment2, Date, `PN (uM)`, `PC (uM)`, Cnratio, AccN, AccC, AddNn, AddN) %>% 
+  rename(tank = Tank, treatment = Treatment2, date = Date, pn_um = `PN (uM)`, pc_um = `PC (uM)`, cn_ratio = Cnratio, 
+         acc_n = AccN, acc_c = AccC, add_nn = AddNn, add_n = AddN) %>% 
+  mutate(tank = str_remove(tank, "/(2|3)")) %>% 
+  mutate(replicate = str_extract(tank, "\\d$"))
+```
+
+```{r}
+
+```
+

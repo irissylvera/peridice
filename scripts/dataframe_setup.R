@@ -25,16 +25,46 @@ metadataframe <- raw_data %>%
   group_by(timepoint, treatment, replicate)
   
 
-env_data <- metadataframe
+# env_data <- metadataframe
+# 
+# samp_notes <- read_xlsx("xls/PERIDICE_sample_notes.xlsx") %>% 
+#   mutate(treatment = str_extract(treatment, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
+#   select(-c(init, notes, sample_collection_date)) %>%  
+#   dplyr::rename(timepoint = date) %>% 
+#   mutate(replicate = as.character(replicate)) 
+# 
+# filt_data <- env_data %>% 
+#   left_join(samp_notes) 
+# 
+# write.csv(filt_data, file = "csvs/filt_data.csv", row.names = FALSE)
 
-samp_notes <- read_xlsx("PERIDICE_sample_notes.xlsx") %>% 
-  mutate(treatment = str_extract(treatment, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
-  select(-c(init, notes, sample_collection_date)) %>%  
-  dplyr::rename(timepoint = date) %>% 
-  mutate(replicate = as.character(replicate)) 
+#filt data 
+filt_data <- read_csv("csvs/filt_data.csv") %>% 
+  mutate(timepoint = str_replace_all(timepoint, "14July", "7-14-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "21July", "7-21-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "30June", "6-30-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27July", "7-27-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27June", "6-27-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%m-%d-%y")) %>% 
+  select(-c("timepoint", "samp_type"))
 
-filt_data <- env_data %>% 
-  left_join(samp_notes) 
+# pcpn
+pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
+  select(Tank, Treatment2, Date, `PN (uM)`, `PC (uM)`, Cnratio, AccN, AccC, AddNn, AddN) %>% 
+  rename(tank = Tank, treatment = Treatment2, date = Date, pn_um = `PN (uM)`, pc_um = `PC (uM)`, cn_ratio = Cnratio, 
+         acc_n = AccN, acc_c = AccC, add_nn = AddNn, add_n = AddN) %>% 
+  mutate(tank = str_remove(tank, "/(2|3)")) %>% 
+  mutate(replicate = str_extract(tank, "\\d$")) %>% 
+  mutate(replicate = as.numeric(replicate)) %>% 
+  select(-c("tank"))
 
-write.csv(filt_data, file = "csvs/filt_data.csv", row.names = FALSE)
+# add_n is nitrate add_nn is nitrate_nitrite
+
+# setup metadata
+metadata_targ <- filt_data %>% 
+  left_join(pcpn, by = c("date", "replicate", "treatment")) %>% 
+  na.omit() %>% 
+  select(-c("replicate")) %>% 
+  rename(replicate = filename) %>% 
+  mutate(replicate = str_remove(replicate, ".mzML"))
 

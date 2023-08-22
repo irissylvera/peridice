@@ -36,49 +36,58 @@ library(ggplot2)
 ```{r}
 peak_list <- read_csv('csvs/targeted_peak_list.csv') %>% 
   mutate(Protein = str_replace(Protein, "HILIC_Pos_Standards", "HILIC")) %>% 
-  rename(Column = Protein) %>% 
-  rename(Precursor.Ion.Name = Peptide) %>% 
-  mutate(Replicate.Name =str_extract(Replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
-  mutate(timepoint=str_extract(Replicate, "27June|30June|14July|21July|27July")) %>%
-  rename(Precursor.Mz = `Precursor Mz`) %>%
-  rename(Precursor.Charge = `Precursor Charge`) %>%
-  rename(Product.Mz = `Product Mz`) %>%
-  rename(Product.Charge = `Product Charge`) %>%
-  rename(Frag.Ion = `Fragment Ion`) %>%
-  rename(Retention.Time = `Retention Time`) %>%
-  rename(Peak.Rank = `Peak Rank`) %>%
-  mutate(num_area = as.numeric(Area)) %>% 
-  mutate(num_background = as.numeric(Background)) %>% 
-  select(-c(Precursor.Charge, Frag.Ion, Peak.Rank)) %>%
-  mutate(Retention.Time = as.numeric(as.factor(Retention.Time)))
+  rename(column = Protein) %>% 
+  rename(metabolite = Peptide) %>% 
+  mutate(replicate_name = str_extract(Replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_extract(Replicate, "27June|30June|14July|21July|27July")) %>%
+  rename(replicate = Replicate) %>% 
+  rename(area = Area) %>% 
+  rename(background = Background) %>% 
+  rename(precursor_mz = `Precursor Mz`) %>%
+  rename(precursor_charge = `Precursor Charge`) %>%
+  rename(product_mz = `Product Mz`) %>%
+  rename(product_charge = `Product Charge`) %>%
+  rename(frag_ion = `Fragment Ion`) %>%
+  rename(rt = `Retention Time`) %>%
+  rename(peak_rank = `Peak Rank`) %>%
+  mutate(num_area = as.numeric(area)) %>% 
+  mutate(num_background = as.numeric(background)) %>% 
+  select(-c(precursor_charge, frag_ion, peak_rank)) %>%
+  mutate(rt = as.numeric(as.factor(rt)))
 
 
-Ingalls_Standards <- read.csv(
+ingalls_standards <- read.csv(
   "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
                               stringsAsFactors = FALSE, header = TRUE) %>%
   # filter(Column == Column.Type) %>%
-  rename(Metabolite.Name = Compound_Name) %>%
-  select(Metabolite.Name, Compound_Type, Concentration_uM, HILIC_Mix, Empirical_Formula) %>% #QE.RF.ratio
+  rename(internal_standards = Compound_Name) %>%
+  select(internal_standards, Compound_Type, Concentration_uM, HILIC_Mix, Empirical_Formula) %>% #QE.RF.ratio
   filter(!is.na(Concentration_uM)) %>%
   filter(Compound_Type == "Internal Standard") %>%
-  mutate(Concentration_nM = Concentration_uM * 1000) %>%
+  mutate(conc_nm = Concentration_uM * 1000) %>%
   select(-c(Concentration_uM)) %>%
-  rename(Internal_Standards = Metabolite.Name) %>%
-  mutate(Matched_Compounds = Internal_Standards) %>% 
-  mutate(Matched_Compounds = str_remove(Matched_Compounds, ",.*")) %>% 
+  # rename(internal_standards = Metabolite.Name) %>%
+  mutate(matched_cmpds = internal_standards) %>% 
+  mutate(matched_cmpds = str_remove(matched_cmpds, ",.*")) %>% 
   select(-c(HILIC_Mix, Compound_Type, Empirical_Formula))
 ```
+# Filtration data
+```{r}
+filt_data <- read_csv("csvs/filt_data.csv")
+```
+
+
 
 # Quality control
 ## Set parameters
 ```{r}
 # QE + TQS QC parameters
-area.min   <- 1000 # peak area minimum - calculated from peak intensity of chromatogram
-RT.flex    <- 0.4 # retention time flexibility - accounts variance across matrices and time on machine
-blk.thresh <- 0.3 # blank sample threshold to calculate difference for samples
-SN.min     <- 4 # signal to noise ratio minimum
-height.min <- 1000 # noise threshold minimum
-height.max <- 1.0e10 # not as significant for Orbitrap, important for TQS
+area_min   <- 1000 # peak area minimum - calculated from peak intensity of chromatogram
+rt_flex    <- 0.4 # retention time flexibility - accounts variance across matrices and time on machine
+blk_thresh <- 0.3 # blank sample threshold to calculate difference for samples
+sn_min     <- 4 # signal to noise ratio minimum
+height_min <- 1000 # noise threshold minimum
+height_max <- 1.0e10 # not as significant for Orbitrap, important for TQS
 
 # new column of smp:blk, filter >= 1?
 # for loop that calculates that the sample peak areas are greater than the blanks
@@ -88,23 +97,22 @@ height.max <- 1.0e10 # not as significant for Orbitrap, important for TQS
 ## Match peak_list to Ingalls_Standards (skyline transition list to internal standards)
 ```{r}
 if ("Column" %in% colnames(peak_list)) {
-  Internal_Standards <- read.csv(
+  internal_standards <- read.csv(
     "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv") %>%
     filter(Column == "HILIC") %>%
-    filter(Compound_Name %in% peak_list$Precursor.Ion.Name) %>% # tidy this once it's complete
-    rename(Precursor.Ion.Name = Compound_Name) %>%
-    select(Precursor.Ion.Name) %>%
+    filter(metabolite %in% peak_list$metabolite) %>% # tidy this once it's complete
+    select(metabolite) %>%
     unique()
   peak_list.nostds <- peak_list %>%
-    filter(!str_detect(Replicate.Name, "Std"))
+    filter(!str_detect(replicate_name, "Std"))
   peak_list.stds <- peak_list %>%
-    filter(str_detect(Replicate.Name, "Std")) %>%
-    left_join(Internal_Standards)
+    filter(str_detect(replicate_name, "Std")) %>%
+    left_join(internal_standards)
     # filter(str_detect(Replicate.Name) | str_detect(Replicate.Name, regex("H2OinMatrix", ignore_case = TRUE))) %>% 
     # select(-HILICMix)
   peak_list <- peak_list.stds %>%
     rbind(peak_list.nostds) %>%
-    arrange(Precursor.Ion.Name)
+    arrange(metabolite)
 }
 ```
 
@@ -112,77 +120,76 @@ if ("Column" %in% colnames(peak_list)) {
 ## Setup
 ```{r}
 # Need to find minimum and maximum retention time for each sample
-RT.table <- peak_list %>%
-  filter(str_detect(Replicate, regex("Std", ignore_case = TRUE))) %>%
-  group_by(Precursor.Ion.Name) %>%
-  mutate(RT.min = min(Retention.Time, na.rm = TRUE)) %>%
-  mutate(RT.max = max(Retention.Time, na.rm = TRUE)) %>%
-  mutate(RT.Reference = mean(Retention.Time, na.rm = TRUE)) %>%
-  select(Precursor.Ion.Name, RT.min, RT.max) %>%
+rt_table <- peak_list %>%
+  filter(str_detect(replicate, regex("Std", ignore_case = TRUE))) %>%
+  group_by(metabolite) %>%
+  mutate(rt_min = min(rt, na.rm = TRUE)) %>%
+  mutate(rt_max = max(rt, na.rm = TRUE)) %>%
+  mutate(rt_reference = mean(rt, na.rm = TRUE)) %>%
+  select(metabolite, rt_min, rt_max) %>%
   unique()
 
-area.table <- peak_list %>%
-  select(Replicate, Precursor.Ion.Name, num_area) %>%
-  filter(str_detect(Replicate, regex("Smp|Poo", ignore_case = TRUE)))
+area_table <- peak_list %>%
+  select(replicate, metabolite, num_area) %>%
+  filter(str_detect(replicate, regex("Smp|Poo", ignore_case = TRUE)))
 
-SN.table <- peak_list %>%
-  filter(str_detect(Replicate, regex("Smp|Poo", ignore_case = TRUE))) %>%
-  select(Replicate, Precursor.Ion.Name, num_area, num_background) %>%
-  mutate(Signal.to.Noise = (num_area / num_background))
+sn_table <- peak_list %>%
+  filter(str_detect(replicate, regex("Smp|Poo", ignore_case = TRUE))) %>%
+  select(replicate, metabolite, num_area, num_background) %>%
+  mutate(signal_to_noise = (num_area / num_background))
 
-blank.table <- peak_list %>%
-    filter(str_detect(Replicate.Name, regex("Blk", ignore_case = TRUE))) %>%
-    select(Precursor.Ion.Name, num_area) %>%
-    group_by(Precursor.Ion.Name) %>% 
+blank_table <- peak_list %>%
+    filter(str_detect(replicate_name, regex("Blk", ignore_case = TRUE))) %>%
+    select(metabolite, num_area) %>%
+    group_by(metabolite) %>% 
     filter(num_area == max(num_area)) %>%
-    rename(Blank.max = num_area) %>%
+    rename(blank_max = num_area) %>%
     unique()
 ```
 
 ```{r}
 peak_list_all_flags <- peak_list %>%
-  left_join(RT.table) %>%
-  mutate(RT.Flag = ifelse((Retention.Time >= (RT.max + RT.flex) | Retention.Time <= (RT.min - RT.flex)), 
+  left_join(rt_table) %>%
+  mutate(rt_flag = ifelse((rt >= (rt_max + rt_flex) | rt <= (rt_min - rt_flex)), 
                           "RT.Flag", NA)) %>%
-  left_join(blank.table) %>%
-  group_by(Precursor.Ion.Name) %>%
-  mutate(Blank.Reference = num_area / Blank.max) %>%
-  mutate(IS_present = ifelse(str_detect(Replicate.Name, ","), "Internal Std", "Non IS")) %>%
-  mutate(blank.Flag = ifelse(((IS_present != "Internal Std") & ((num_area / Blank.max) < blk.thresh)), 
+  left_join(blank_table) %>%
+  group_by(metabolite) %>%
+  mutate(blank_ref = num_area / blank_max) %>%
+  mutate(is_present = ifelse(str_detect(replicate_name, ","), "Internal Std", "Non IS")) %>%
+  mutate(blank_flag = ifelse(((is_present != "Internal Std") & ((num_area / blank_max) < blk_thresh)), 
                              "blank.Flag", 
-                             ifelse(((IS_present == "Internal Std") & ((num_area / Blank.max) < blk.thresh)),
+                             ifelse(((is_present == "Internal Std") & ((num_area / blank_max) < blk_thresh)),
                                     "IS.blank.Flag", NA))) %>%
-  mutate(area.min.Flag = ifelse((num_area < area.min), "area.min.Flag", NA)) %>%
-  mutate(Area.with.QC   = ifelse(is.na(area.min.Flag), num_area, NA)) %>%
-  select(Replicate:num_area, Area.with.QC, everything()) %>%
-  left_join(SN.table) %>%
-  mutate(SN.Flag = ifelse((Signal.to.Noise < SN.min), "SN.Flag", NA))
+  mutate(area_min_flag = ifelse((num_area < area_min), "area_min_Flag", NA)) %>%
+  mutate(area_with_qc   = ifelse(is.na(area_min_flag), num_area, NA)) %>%
+  select(replicate:num_area, area_with_qc, everything()) %>%
+  left_join(sn_table) %>%
+  mutate(sn_flag = ifelse((signal_to_noise < sn_min), "sn_flag", NA))
 ```
 
 ## BMIS
 ```{r}
-Internal.Standards <- read.csv("https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+internal_standards <- read.csv("https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
                                stringsAsFactors = FALSE, header = TRUE) %>%
   filter(Compound_Type == "Internal Standard")
 
-QCd.data <- peak_list_all_flags %>% 
-  filter(!str_detect(Replicate, "Blk|Std"))
+qc_data <- peak_list_all_flags %>% 
+  filter(!str_detect(replicate, "Blk|Std"))
 
-SampKey <- QCd.data %>%
-  select(Replicate) %>%
-  mutate(Area.with.QC = ifelse(str_detect(Replicate, "Half"), 0.5, 1.0)) %>%
-  mutate(Mass.Feature = "Inj_vol")
+sampkey <- qc_data %>%
+  select(replicate) %>%
+  mutate(area_with_qc = ifelse(str_detect(replicate, "Half"), 0.5, 1.0)) %>%
+  mutate(metabolite = "Inj_vol")
 
-Int.Stds.data <- QCd.data %>%
-  filter(Precursor.Ion.Name %in% Internal.Standards$Compound_Name)%>%
-  select(Replicate, Precursor.Ion.Name, Area.with.QC) %>%
-  rename(Mass.Feature = Precursor.Ion.Name)
+is_stds_data <- qc_data %>%
+  filter(metabolite %in% internal_standards$Compound_Name_Figure) %>%
+  select(replicate, metabolite, area_with_qc) 
 
-Data.NoIS <- QCd.data %>%
-  filter(!Precursor.Ion.Name %in% Internal.Standards$Compound_Name)
+data_no_is <- qc_data %>%
+  filter(!metabolite %in% internal_standards$Compound_Name_Figure)
 
-Int.Stds.data <- rbind(Int.Stds.data, SampKey) %>%
-  separate(Replicate, into = c("a", "RunType", "c", "d"), sep = "_", remove = FALSE)
+is_stds_data <- rbind(is_stds_data, sampkey) %>%
+  separate(replicate, into = c("a", "RunType", "c", "d"), sep = "_", remove = FALSE)
 
 # Int.Stds.full.data <- left_join(Int.Stds.data, SampKey, by = "Replicate") %>% 
 #   group_by(Replicate, Mass.Feature.x, Area.with.QC.x) %>% 
@@ -190,12 +197,11 @@ Int.Stds.data <- rbind(Int.Stds.data, SampKey) %>%
 ```
 
 ```{r}
-
-Int.Stds.data %>% 
+is_stds_data %>% 
   # filter(RunType == "Poo") %>% 
   ggplot() + 
-  geom_bar(aes(x = Replicate, y = Area.with.QC, color = RunType), stat = "identity", position = "dodge")  +
-  facet_wrap( ~Mass.Feature, scales = "free_y") +
+  geom_bar(aes(x = replicate, y = area_with_qc, color = RunType), stat = "identity", position = "dodge")  +
+  facet_wrap( ~metabolite, scales = "free_y") +
   theme(axis.text.x = element_blank(),
         axis.text.y = element_text(size = 10),
         legend.position = "top",
@@ -205,90 +211,311 @@ Int.Stds.data %>%
 ```
 
 ```{r}
-data.long  <- Data.NoIS %>%
-  rename(metabolite = Precursor.Ion.Name) %>%
-  select(Replicate, metabolite, Area.with.QC) %>%
-  filter(str_detect(Replicate, "Poo")) %>%
-  group_by(Replicate) %>%
-  rename(poo_area = Area.with.QC) %>% 
+data_long <- data_no_is %>%
+  # rename(metabolite = Precursor.Ion.Name) %>%
+  select(replicate, metabolite, area_with_qc) %>%
+  filter(str_detect(replicate, "Poo")) %>%
+  group_by(replicate) %>%
+  rename(poo_area = area_with_qc) %>% 
   na.omit()
+```
 
-is_areas <- Int.Stds.data %>%
-  filter(str_detect(Replicate, "Poo")) %>%
-  filter(!str_detect(Mass.Feature, "Inj_vol")) %>%
-  select(-c(Precursor.Ion.Name, a, RunType, c, d)) %>%
-  group_by(Replicate) %>%
-  rename(int_area = Area.with.QC) %>% 
-  rename(internal_standard = Mass.Feature) %>% 
+
+# Isotopologue Quantification
+```{r}
+isologs <- data_long %>% 
+  left_join(is_areas, by = c("replicate")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, ", .*")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, "D")) %>% 
+  filter(metabolite %in% internal_standard)
+  # distinct(metabolite, .keep_all = TRUE)
+
+is_conc <- internal_standards %>% 
+  select(Compound_Name_Figure, Concentration_uM) %>% 
+  rename(internal_standard = Compound_Name_Figure) %>% 
+  rename(conc_um = Concentration_uM) %>% 
+  mutate(internal_standard = str_remove(internal_standard, ", .*")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, "D"))
+
+isologs_quant <- isologs %>% 
+  left_join(is_conc, by = c("internal_standard")) %>% 
+  filter(metabolite == internal_standard) %>% 
+  mutate(umol_per_vial = (poo_area/int_area)*conc_um) %>% 
+  # mutate(umol_enviro = umol_per_vial*400*1e6/)
+  
+
+```
+
+```{r}
+filt_data_quant <- filt_data %>% 
+  select(-c(replicate)) %>% 
+  rename(replicate = filename) %>% 
+  filter(!str_detect(replicate, "Poo|Std")) %>% 
+  mutate(replicate = str_remove(replicate, ".mzML"))
+
+isologs_smp <- qc_data %>% 
+  left_join(is_areas_smp, by = c("replicate")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, ", .*")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, "D")) %>% 
+  filter(metabolite %in% internal_standard) %>% 
+  filter(!str_detect(replicate, "Poo|Std")) %>% 
+  select(replicate, area_with_qc, metabolite, internal_standard, int_area, avg_is_area) %>% 
+  mutate(replicate = str_remove(replicate, "230616_")) %>% 
+  left_join(filt_data_quant, by = c("replicate"))
+
+is_conc_smp <- internal_standards %>% 
+  select(Compound_Name_Figure, Concentration_uM) %>% 
+  rename(internal_standard = Compound_Name_Figure) %>% 
+  rename(conc_um = Concentration_uM) %>% 
+  mutate(internal_standard = str_remove(internal_standard, ", .*")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, "D"))
+
+isologs_quant_smp <- isologs_smp %>% 
+  left_join(is_conc, by = c("internal_standard")) %>% 
+  filter(metabolite == internal_standard) %>% 
+  mutate(umol_per_vial = (area_with_qc/int_area)*conc_um) %>% 
+  mutate(umol_enviro = (umol_per_vial*400*1e-6)/vol_L_filt*1000*2)
+```
+
+# RSD Normalized to Injection Volume
+```{r}
+is_areas_inj_vol <- is_stds_data %>%
+  filter(str_detect(replicate, "Poo")) %>%
+  mutate(inj_vol = ifelse(str_detect(replicate, "Half"), 0.5, 1)) %>% 
+  # filter(!str_detect(metabolite, "Inj_vol")) %>%
+  select(-c(metabolite, a, RunType, c, d)) %>%
+  group_by(replicate) %>% 
+  rename(internal_standard = metabolite) %>% 
+  group_by(internal_standard) %>% 
+  filter(internal_standard != "Inj_vol")
+  
+  # mutate(avg_is_area = mean(int_area))
+
+bmis_areas_inj_vol <- data_long %>% 
+  left_join(is_areas_inj_vol, by = c("replicate")) %>% 
+  filter(!metabolite %in% isologs$metabolite) %>% 
+  group_by(internal_standard) %>% 
+  mutate(avg_is_area = mean(inj_vol)) %>% 
+  mutate(norm_area = poo_area/inj_vol*avg_is_area) %>%  
+  ungroup() %>% 
+  # mutate(norm_area = poo_area/inj_vol) %>%
+  group_by(metabolite, internal_standard) %>% 
+  mutate(rsd = sd(norm_area)/mean(norm_area)) %>% 
+  # mutate(sd_area = sd(norm_area)) %>% 
+  group_by(metabolite, internal_standard) %>% 
+  arrange(rsd) %>% 
+  slice(1)
+
+bmis_data_inj_vol <- bmis_areas_inj_vol %>% 
+  select(metabolite, internal_standard, rsd) %>% 
+  group_by(metabolite) %>% 
+  arrange(rsd) %>% 
+  slice(1) %>% 
+  rename(bmis = internal_standard)
+```
+
+
+# RSD Normalized to Dilution Factor
+```{r}
+is_areas <- is_stds_data %>%
+  filter(str_detect(replicate, "Poo")) %>%
+  mutate(area_with_qc = ifelse(str_detect(replicate, "Half"), area_with_qc*2, area_with_qc)) %>% 
+  filter(!str_detect(metabolite, "Inj_vol")) %>%
+  select(-c(metabolite, a, RunType, c, d)) %>%
+  group_by(replicate) %>%
+  rename(int_area = area_with_qc) %>% 
+  rename(internal_standard = metabolite) %>% 
   group_by(internal_standard) %>% 
   mutate(avg_is_area = mean(int_area))
 
-bmis_areas <- data.long %>% 
-  left_join(is_areas, by = c("Replicate")) %>% 
-  mutate(area_per_is = poo_area/int_area*avg_is_area) %>%  
-  arrange(area_per_is) %>% 
-  group_by(Replicate, metabolite) %>% 
-  slice(1) %>% 
-  mutate(bmis = internal_standard)
+is_areas_smp <- is_stds_data %>%
+  filter(str_detect(replicate, "Smp")) %>%
+  mutate(area_with_qc = ifelse(str_detect(replicate, "Half"), area_with_qc*2, area_with_qc)) %>% 
+  filter(!str_detect(metabolite, "Inj_vol")) %>%
+  select(-c(metabolite, a, RunType, c, d)) %>%
+  group_by(replicate) %>%
+  rename(int_area = area_with_qc) %>% 
+  rename(internal_standard = metabolite) %>% 
+  group_by(internal_standard) %>% 
+  mutate(avg_is_area = mean(int_area))
+
+bmis_areas_w_is <- data_long %>% 
+  left_join(is_areas, by = c("replicate")) %>% 
+  filter(!metabolite %in% isologs$metabolite) %>% 
+  mutate(norm_area = poo_area/int_area*avg_is_area) %>%  
+  # mutate(norm_area = poo_area/int_area) %>%
+  group_by(metabolite, internal_standard) %>% 
+  mutate(rsd = sd(norm_area)/mean(norm_area)) %>% 
+  # mutate(sd_area = sd(norm_area)) %>% 
+  group_by(metabolite, internal_standard) %>% 
+  arrange(rsd) %>% 
+  slice(1)
+
+# need to calculate if % change in RSD is > 0.4
 
 bmis_data <- bmis_areas %>% 
-  
-
-# data_long_poo <- Data.NoIS %>%
-#   filter(str_detect(Replicate, "Poo")) %>%
-#   select(Replicate, Precursor.Ion.Name, num_area) %>%
-#   pivot_wider(names_from = Precursor.Ion.Name, values_from = num_area)
-# 
-# is_areas <- Int.Stds.data %>%
-#   filter(str_detect(Replicate, "Poo")) %>%
-#   filter(!str_detect(Mass.Feature, "Inj_vol")) %>%
-#   select(-c(Precursor.Ion.Name, a, RunType, c, d)) %>%
-#   pivot_wider(names_from = Mass.Feature, values_from = Area.with.QC)
-
-
-# need to calculate mean areas and then calculate the variance (RSD) by QCd area / IntStds area x avgIntStds area
-
-# calculate QCd area / IS area then select smallest value
-
-poo_is_area <- data_long_poo %>% 
-  
-
-test_isdata <- as.data.frame(sort(unique(Int.Stds.data$Replicate.Name)))
-test_long <- as.data.frame(sort(unique(Data.long$Replicate.Name)))
-test <- identical(test_isdata[[1]], test_long[[1]])
+  select(metabolite, internal_standard, rsd) %>% 
+  group_by(metabolite) %>% 
+  arrange(rsd) %>% 
+  slice(1) %>% 
+  rename(bmis = internal_standard)
 ```
 
-## Internal Standard Mean Area Calculation
+# Percent Improved
 ```{r}
-Int.Stds.means <- Int.Stds.data %>%
-  select(-c("a", "RunType", "c", "d")) %>%
-  group_by(Mass.Feature) %>%
-  summarise(Average.Area = mean(as.numeric(Area.with.QC), na.rm = TRUE))
+bmis_data_imp <- bmis_data %>% 
+  # select(-c("bmis")) %>% 
+  rename(rsd_is = rsd)
 
-Data.bound <- rbind(Int.Stds.data %>% select(-c("a", "RunType", "c", "d")), Data.long) %>%
-  arrange(Mass.Feature)
+bmis_data_inj_vol_imp <- bmis_data_inj_vol %>% 
+  select(-c("bmis")) %>% 
+  rename(rsd_inj_vol = rsd)
 
-Split_Dat <- list()
-
-for (i in 1:length(unique(Int.Stds.data$Mass.Feature))) {
-  Split_Dat[[i]] <- Data.bound %>%
-    mutate(MIS = unique(Int.Stds.data$Mass.Feature)[i]) %>%
-    left_join(Int.Stds.data %>%
-                rename(MIS = Mass.Feature, IS_Area = Area.with.QC) %>%
-                select(MIS, Replicate.Name, IS_Area), by = c("Replicate.Name", "MIS")) %>%
-    left_join(Int.Stds.means %>%
-                rename(MIS = Mass.Feature), by = "MIS") %>%
-    mutate(Adjusted.Area = Area.with.QC/IS_Area*Average.Area)
-}
-
-Data.area.norm <- do.call(rbind, Split_Dat) %>%
-  select(-IS_Area, -Average.Area)
+bmis_rsd_perc <- bmis_data_imp %>% 
+  left_join(bmis_data_inj_vol_imp, by = c("metabolite")) %>% 
+  mutate(rsd_perc = (rsd_is - rsd_inj_vol)/rsd_inj_vol) %>% 
+  filter(rsd_perc > 0.4 & rsd_inj_vol > 0.1)
 ```
 
+# Quantification for BMIS compounds
+```{r}
+
+```
+
+# Data exploration
+```{r}
+filt_data_vis <- filt_data %>% 
+  mutate(filename = str_remove(filename, ".mzML")) %>% 
+  select(-c(replicate)) %>% 
+  rename(replicate = filename)
+
+data_vis <- data_no_is %>% 
+  select(replicate, metabolite, area_with_qc, rt) %>% 
+  mutate(replicate = str_remove(replicate, "230616_")) %>% 
+  left_join(filt_data_vis, by = c("replicate")) %>% 
+  mutate(area_per_L = area_with_qc/vol_L_filt) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "14July", "7-14")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "21July", "7-21")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "30June", "6-30")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27July", "7-27")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27June", "6-27")) %>% 
+  mutate(date =as.Date(timepoint, format="%m-%d")) %>% 
+  na.omit() 
+
+colors <- c("C" = "plum2", "LH" = "lightcoral", "LL" = "gold", "RH" = "brown3", "RL" = "orange", "T0" = "grey50", 
+                              "ZF" = "mediumpurple", "ZH" = "lightseagreen", "ZL" = "darkslategray2")
+
+```
 
 ```{r}
-Mydata.new <- Data.area.norm %>%
-  separate(Replicate.Name, c("runDate", "type", "SampID", "replicate"), "_") %>%
-  mutate(Run.Cmpd = paste(Data.area.norm$Replicate.Name, Data.area.norm$Mass.Feature))
+# top 20 metabolites in each treatment
+
+data_vis %>% 
+  group_by(treatment, metabolite) %>%
+  summarise(area_per_L=sum(area_per_L)) %>%
+  arrange(desc(area_per_L)) %>% 
+  do(head(., n = 10)) %>% 
+  na.omit() %>% 
+  ungroup() %>% 
+  ggplot() + 
+    geom_col(aes(x = treatment, y = area_per_L, fill = metabolite), width = 0.5, position = "stack")
+  
+```
+```{r}
+data_vis %>% 
+  filter(metabolite == "Adenine") %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  distinct(area_avg, .keep_all = TRUE) %>% 
+  ggplot() + 
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  scale_color_manual(values = colors) + 
+  theme_bw() + 
+  xlim()
+```
+
+```{r}
+data_vis %>% 
+  filter(metabolite == "Adenine") %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  distinct(area_avg, .keep_all = TRUE) %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  facet_wrap(~treatment) + 
+  theme_bw() + 
+  scale_color_manual(values = colors) + 
+  xlab("Date") + 
+  ylab("Metabolite Peak Area Per L") + 
+  ggtitle("Adenine Peak Area Timeseries")
+```
+
+```{r}
+data_vis %>% 
+  filter(metabolite == "Homarine") %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  distinct(area_avg, .keep_all = TRUE) %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  facet_wrap(~treatment) + 
+  theme_bw() + 
+  scale_color_manual(values = colors) + 
+  xlab("Date") + 
+  ylab("Metabolite Peak Area Per L") + 
+  ggtitle("Adenine Peak Area Timeseries")
+```
+
+```{r}
+data_vis %>% 
+  filter(metabolite == "Phosphocholine") %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  distinct(area_avg, .keep_all = TRUE) %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  facet_wrap(~treatment) + 
+  theme_bw() + 
+  scale_color_manual(values = colors) + 
+  xlab("Date") + 
+  ylab("Metabolite Peak Area Per L") + 
+  ggtitle("Phosphocholine Peak Area Timeseries")
+```
+
+```{r}
+data_vis %>% 
+  filter(metabolite == "Glycine betaine") %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  distinct(area_avg, .keep_all = TRUE) %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  facet_wrap(~treatment) + 
+  theme_bw() + 
+  scale_color_manual(values = colors) + 
+  xlab("Date") + 
+  ylab("Metabolite Peak Area Per L") + 
+  ggtitle("Glycine Betaine Peak Area Timeseries")
+```
+
+```{r}
+data_vis %>% 
+  filter(metabolite == "Propylamine") %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  group_by(treatment, date) %>% 
+  mutate(area_avg = mean(area_per_L)) %>% 
+  distinct(area_avg, .keep_all = TRUE) %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = area_avg, color = treatment)) + 
+  facet_wrap(~treatment) + 
+  theme_bw() + 
+  scale_color_manual(values = colors) + 
+  xlab("Date") + 
+  ylab("Metabolite Peak Area Per L") + 
+  ggtitle("Propylamine Peak Area Timeseries")
 ```
 

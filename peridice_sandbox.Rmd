@@ -40,31 +40,43 @@ source('scripts/dataframe_setup.R')
 source('scripts/xcms_peak_output.R')
 ```
 
+```{r}
+metadata_untarg <- filt_data %>% 
+  left_join(pcpn, by = c("date", "replicate", "treatment")) %>% 
+  na.omit() 
+
+peak_data_clean <- peak_data_clean %>% 
+  mutate(timepoint = str_replace_all(timepoint, "7-14", "7-14-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "7-21", "7-21-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "6-30", "6-30-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "7-27", "7-27-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "6-30e", "6-27-22")) %>% 
+  mutate(date = as.Date(timepoint, format="%m-%d-%y")) %>% 
+  mutate(replicate = as.numeric(replicate))
+```
+
+
 # Normalization by volume filtered
 ```{r}
 peak_data_area_norm <- peak_data_clean %>% 
-  left_join(filt_data, by = join_by(timepoint, treatment, replicate)) %>% 
-  mutate(area_per_L = area/vol_L_filt) %>% 
+  left_join(metadata_untarg, by = join_by(date, treatment, replicate)) %>% 
+  mutate(area_per_Lpc = area/vol_L_filt/pc_um) %>% 
   select(-c(`filename.y`)) %>% 
   rename(filename = `filename.x`) %>% 
   mutate(treatment = str_extract(treatment, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
-  mutate(timepoint = str_replace_all(timepoint, "14July", "7-14")) %>% 
-  mutate(timepoint = str_replace_all(timepoint, "21July", "7-21")) %>% 
-  mutate(timepoint = str_replace_all(timepoint, "30June", "6-30")) %>% 
-  mutate(timepoint = str_replace_all(timepoint, "27July", "7-27")) %>% 
-  mutate(timepoint = str_replace_all(timepoint, "27June", "6-27")) %>% 
-  mutate(date =as.Date(timepoint, format="%m-%d"))
+  mutate(samp_type = str_extract(filename, "Blk|Poo|Smp|Std"))
   
 chosen_feats <- read_csv("csvs/chosen_feats.csv")
 
 peak_data_norm_good <- peak_data_area_norm %>% 
   filter(samp_type=="Smp") %>% 
-  select(compound, filename, area_per_L, mz, rt, treatment, timepoint, date) %>% 
+  ungroup() %>% 
+  select(compound, filename, area_per_Lpc, mz, rt, treatment, date) %>% 
   filter(compound%in%chosen_feats$feature) %>%
   group_by(compound, filename) %>%
   mutate(n=n()) %>%
   group_by(compound) %>%
-  filter(all(n==1)) %>%
+  # filter(all(n==1)) %>%
   ungroup() %>%
   complete(compound, filename, fill=list(area=0)) %>% 
   select(-n)
@@ -85,7 +97,7 @@ write.csv(peak_data_norm_good, file = "csvs/untargeted_peak_list.csv", row.names
 set.seed(20)
 
 peak_data_nmds <- peak_data_area_norm %>% 
-  arrange(desc(area_per_L)) %>% 
+  arrange(desc(area_per_Lpc)) %>% 
   group_by(compound, filename) %>% 
   mutate(filename = str_remove(filename, "\\d.mzML")) %>% 
   mutate(filename = str_remove(filename, "_")) %>% 
@@ -95,8 +107,8 @@ peak_data_nmds <- peak_data_area_norm %>%
   slice(1)
 
 peak_data_nmds <- peak_data_nmds %>% 
-  group_by(compound, treatment, timepoint) %>% 
-  mutate(avg_area_per_L = mean(area_per_L))
+  group_by(compound, treatment, date) %>% 
+  mutate(avg_area_per_Lpc = mean(area_per_Lpc))
   # distinct(avg_area_per_L)
 
 # peak_data_nmds <- peak_data_nmds %>% 
@@ -108,18 +120,18 @@ peak_data_nmds <- peak_data_nmds %>%
 peak_data_nmds <- peak_data_nmds %>% 
   ungroup() %>% 
   group_by(compound, filename) %>% 
-  distinct(avg_area_per_L) 
+  distinct(avg_area_per_Lpc) 
 
 peak_data_nmds <- peak_data_nmds %>% 
   ungroup() %>% 
   # filter(is.na(area_per_L)) %>% 
   complete(compound, filename) %>%
-  mutate(avg_area_per_L = replace_na(avg_area_per_L, 0)) %>% 
-  mutate(avg_area_per_L = as.character(avg_area_per_L)) 
+  mutate(avg_area_per_Lpc = replace_na(avg_area_per_Lpc, 0)) %>% 
+  mutate(avg_area_per_Lpc = as.character(avg_area_per_Lpc)) 
 
 peri_mat <- peak_data_nmds %>%
   group_by(compound) %>%
-  mutate(norm_area=rank(avg_area_per_L)) %>%
+  mutate(norm_area=rank(avg_area_per_Lpc)) %>%
   pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
   column_to_rownames("filename") %>%
   data.matrix()
@@ -169,7 +181,7 @@ mdsout$points %>%
 
 ```{r}
 mess_nmds <- peak_data_norm_good %>% 
-  arrange(desc(area_per_L)) %>% 
+  arrange(desc(area_per_Lpc)) %>% 
   group_by(compound, filename) %>% 
   mutate(filename = str_remove(filename, "\\d.mzML")) %>% 
   mutate(filename = str_remove(filename, "_")) %>% 
@@ -179,26 +191,26 @@ mess_nmds <- peak_data_norm_good %>%
   slice(1) 
 
 mess_nmds <- mess_nmds %>% 
-  group_by(compound, treatment, timepoint) %>% 
-  mutate(avg_area_per_L = mean(area_per_L))
+  group_by(compound, treatment, date) %>% 
+  mutate(avg_area_per_Lpc = mean(area_per_Lpc))
 
 mess_nmds <- mess_nmds %>% 
   ungroup() %>% 
   # filter(is.na(area_per_L)) %>% 
   complete(compound, filename) %>%
-  mutate(avg_area_per_L = replace_na(avg_area_per_L, 0)) %>% 
-  mutate(avg_area_per_L = as.character(avg_area_per_L)) 
+  mutate(avg_area_per_Lpc = replace_na(avg_area_per_Lpc, 0)) %>% 
+  mutate(avg_area_per_Lpc = as.character(avg_area_per_Lpc)) 
 
 mess_mat <- mess_nmds %>%
   group_by(compound) %>%
-  mutate(norm_area=rank(avg_area_per_L)) %>%
+  mutate(norm_area=rank(avg_area_per_Lpc)) %>%
   pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
   column_to_rownames("filename") %>%
   data.matrix()
 
 mess <- mess_nmds %>%
   group_by(compound) %>%
-  mutate(norm_area=rank(area_per_L)) %>%
+  mutate(norm_area=rank(area_per_Lpc)) %>%
   pivot_wider(id_cols = filename, id_expand = TRUE, names_from = "compound", values_from = "norm_area") %>%
   column_to_rownames("filename") %>%
   data.matrix()
@@ -351,9 +363,12 @@ targ_data_qc <- read_csv("csvs/targ_data_qc.csv") %>%
   mutate(filename = str_remove(filename, "Smp_")) %>% 
   mutate(filename = str_remove(filename, "_\\d"))
 
-filt_data_targ <- filt_data %>% 
-  mutate(filename = str_remove(filename, ".mzML")) %>% 
-  group_by(treatment, timepoint, replicate)
+# filt_data_targ <- filt_data %>% 
+#   mutate(filename = str_remove(filename, ".mzML")) %>% 
+#   group_by(treatment, date, replicate)
+
+filt_data_targ <- metadata_untarg %>% 
+  mutate(filename = str_remove(filename, ".mzML"))
 
 targ_data <- read_csv("csvs/targeted_peak_list.csv") %>% 
   select(Peptide, Replicate, `Precursor Mz`, `Retention Time`, Area) %>% 
@@ -367,18 +382,21 @@ targ_data <- read_csv("csvs/targeted_peak_list.csv") %>%
   mutate(filename = str_remove(filename, "230616_")) %>% 
   mutate(timepoint = str_extract(filename, "27June|30June|14July|21July|27July")) %>% 
   mutate(treatment = str_extract(filename, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
-  group_by(treatment, timepoint, replicate)
+  group_by(treatment, timepoint, replicate) %>% 
+  mutate(filename = str_remove(filename, ".mzML")) %>% 
+  mutate(replicate = as.numeric(replicate))
 
-targ_data <- targ_data %>% 
+targ_data_qc <- targ_data %>% 
   left_join(filt_data_targ) %>% 
   mutate(area = as.numeric(area))
 
-targ_data <- targ_data %>% 
-  mutate(area_per_L = area/vol_L_filt)
+targ_data_qc <- targ_data_qc %>% 
+  mutate(area_per_L = area/pc_um) %>% 
+  mutate(samp_type = str_extract(filename, "Smp|Blk|Poo|Std"))
 ```
 
 ```{r}
-targ_nmds <- targ_data %>% 
+targ_nmds <- targ_data_qc %>% 
   arrange(desc(area_per_L)) %>% 
   group_by(compound, filename) %>% 
   filter(samp_type == "Smp") %>% 
