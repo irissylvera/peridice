@@ -12,6 +12,7 @@ library(tidyverse)
 library(ggplot2)
 library(readxl)
 library(RColorBrewer)
+library(vegan)
 ```
 
 ## Data
@@ -85,6 +86,24 @@ metadata_targ <- filt_data %>%
   rename(replicate = filename) %>% 
   mutate(replicate = str_remove(replicate, ".mzML"))
 
+metadataframe <- peak_list %>%
+  # Grab just the unique filenames and rename the column
+  distinct(replicate) %>% 
+  rename(filename = replicate) %>% 
+  mutate(filename = str_remove(filename, "230616_")) %>% 
+  # Extract treatment information from the filename
+  # Longest one needs to go first!")) %>%
+  # Create a new column with timepoint information
+  mutate(treatment = str_extract(filename, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
+  mutate(timepoint=str_extract(filename, "27June|30June|14July|21July|27July")) %>%
+  mutate(replicate = str_extract(filename, "\\d$")) %>% 
+  mutate(replicate = str_remove(replicate, ".mzML")) %>% 
+  # Create a new column with sample type information
+  mutate(samp_type=str_extract(filename, "Blk|Smp|Std|Poo")) %>%
+  #mutate(treatment=ifelse(samp_type=="Poo", NA, treatment)) %>% 
+  mutate(colid = levels(treatment)) %>% 
+  group_by(timepoint, treatment, replicate)
+
 # parameters
 area_min   <- 1000 # peak area minimum - calculated from peak intensity of chromatogram
 rt_flex    <- 0.4 # retention time flexibility - accounts variance across matrices and time on machine
@@ -103,27 +122,6 @@ peak_data_qc <- peak_list %>%
   mutate(area_per_pc = num_area/pc_um)
 ```
 
-
-```{r}
-# if ("Column" %in% colnames(peak_list)) {
-#   internal_standards <- read.csv(
-#     "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv") %>%
-#     filter(Column == "HILIC") %>%
-#     filter(metabolite %in% peak_list$metabolite) %>% # tidy this once it's complete
-#     select(metabolite) %>%
-#     unique()
-#   peak_list_nostds <- peak_list %>%
-#     filter(!str_detect(replicate_name, "Std"))
-#   peak_list_stds <- peak_list %>%
-#     filter(str_detect(replicate_name, "Std")) %>%
-#     left_join(internal_standards)
-#     # filter(str_detect(Replicate.Name) | str_detect(Replicate.Name, regex("H2OinMatrix", ignore_case = TRUE))) %>% 
-#     # select(-HILICMix)
-#   peak_list <- peak_list.stds %>%
-#     rbind(peak_list.nostds) %>%
-#     arrange(metabolite)
-# }
-```
 
 # BMIS
 ## setup
@@ -364,7 +362,10 @@ umol in vial = area / (rf * rf ratio)
 umol in enviro = umol in vial * 400 uL * 10e^-6 / L filt * 1000 * dilution factor
 ```{r}
 ingalls_stds_quant <- read_csv("https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv") %>% 
-  select(metabolite = Compound_Name_Figure, conc_um = Concentration_uM, empirical_formula = Empirical_Formula)
+  select(metabolite_name = Compound_Name_Figure, metabolite = Compound_Name, conc_um = Concentration_uM, 
+         empirical_formula = Empirical_Formula, z, ion_form = Ionization_Form, mix = HILIC_Mix) %>% 
+  filter(z == 1) %>% 
+  na.omit()
 
 filt_data_quant <- filt_data %>% 
   select(filename, vol_L_filt) %>% 
@@ -411,16 +412,23 @@ quant_data <- peak_list %>%
 quant_data %>%
   group_by(metabolite) %>%
   mutate(mean_nm=mean(nmol_in_enviro)) %>%
-  arrange(mean_nm) %>%
+  arrange(desc(mean_nm)) %>%
+  ungroup() %>% 
   mutate(metabolite = fct_inorder(metabolite)) %>%
   ggplot(aes(y = metabolite, x = log10(nmol_in_enviro))) +
   geom_boxplot() + 
   theme_bw()
+  
+  
+write.csv(quant_data, file = "csvs/pos_quant_data.csv", row.names = FALSE)
+write.csv(metadataframe, file = "csvs/metadataframe.csv", row.names = FALSE)
 ```
 
 # Quantified Visualizations
 ```{r}
-nb.cols <- 21
+quant_data <- read_csv("csvs/pos_quant_data")
+
+nb.cols <- 29
 mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
 
 data_vis <- quant_data %>% 
@@ -439,11 +447,23 @@ data_vis %>%
   group_by(metabolite, treatment, date) %>% 
   mutate(nmol_avg = mean(nmol_in_enviro)) %>% 
   distinct(nmol_avg, .keep_all = TRUE) %>% 
-  filter(nmol_in_enviro >= 5) %>% 
+  filter(nmol_in_enviro >= 1) %>% 
   ggplot() + 
   geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "fill") +
   scale_fill_manual(values = mycolors) + 
   facet_wrap(~date) + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw()
+
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nmol_in_enviro)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(nmol_in_enviro >= 1) %>% 
+  ggplot() + 
+  geom_col(aes(x = date, y = nmol_avg, fill = metabolite), position = "fill") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~treatment) + 
   guides(fill=guide_legend(ncol=2)) + 
   theme_bw()
 ``` 
@@ -451,6 +471,183 @@ data_vis %>%
 
 # Stats
 ```{r}
+set.seed(20)
 
+quant_nmds <- data_vis %>% 
+  arrange(desc(nmol_in_enviro)) %>% 
+  group_by(metabolite, replicate) %>% 
+  slice(1) %>% 
+  group_by(metabolite, treatment, date) %>% 
+  summarise(avg_nmol = mean(nmol_in_enviro)) %>% 
+  ungroup() %>% 
+  # complete(metabolite, date, treatment) %>% 
+  # mutate(avg_nmol = replace_na(avg_nmol, 0)) %>% 
+  mutate(id = paste(date, treatment))
+  # mutate(avg_nmol = as.character(avg_nmol))
+
+quant_mat <- quant_nmds %>%
+  group_by(metabolite) %>%
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  column_to_rownames("id") %>%
+  data.matrix()
+
+mdsout <- quant_mat %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data <- metadataframe %>% 
+  ungroup() %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  filter(str_detect(filename, "Smp")) %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
+  mutate(id = paste(date, treatment)) %>% 
+  select(-c("replicate", "filename"))
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, shape = factor(date)), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend",labels = c("Redfield Ratio - High N:P", "No N + Low P", 
+                                                                        "Low N:P, Low Dose", "T0 - Before Treatments", 
+                                                                        "Low N:P, High Dose", "No N + High P", "High P, No Fe", 
+                                                                        "Redfield Ratio - Low N:P", "Control")) +
+  theme_bw() + 
+  ggtitle("Statistical Variation of Metabolite Concentration (nM) in PERI-DICE")
+
+
+plot(mdsout)
+```
+add neg metabs
+
+ratio of nutrients is more important on short term (1-2 weeks) whereas amount added (high dose) is more important on long term scale (3-4 weeks)
+
+```{r}
+quant_nmds_r <- data_vis %>% 
+  filter(str_detect(replicate, "RH|RL|LH|LL")) %>% 
+  arrange(desc(nmol_in_enviro)) %>% 
+  group_by(metabolite, replicate) %>% 
+  slice(1) %>% 
+  group_by(metabolite, treatment, date) %>% 
+  summarise(avg_nmol = mean(nmol_in_enviro)) %>% 
+  ungroup() %>% 
+  # complete(metabolite, date, treatment) %>% 
+  # mutate(avg_nmol = replace_na(avg_nmol, 0)) %>% 
+  mutate(id = paste(date, treatment))
+  # mutate(avg_nmol = as.character(avg_nmol))
+
+quant_mat_r <- quant_nmds_r %>%
+  group_by(metabolite) %>%
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  column_to_rownames("id") %>%
+  data.matrix()
+
+mdsout_r <- quant_mat_r %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data_r <- metadataframe %>% 
+  ungroup() %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  filter(str_detect(filename, "Smp")) %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
+  mutate(id = paste(date, treatment)) %>% 
+  select(-c("replicate", "filename"))
+
+mdsout_r$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data_r) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, shape = factor(date)), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend",labels = c("Redfield Ratio - High Dose",
+                                                                       "Low N:P, Low Dose",
+                                                                       "Low N:P, High Dose",
+                                                                        "Redfield Ratio - Low Dose",
+                                                                       "")) +
+  theme_bw() + 
+  ggtitle("Statistical Variation of Metabolite Concentration (nM) in PERI-DICE")
+```
+
+
+# Volcano plots
+```{r}
+
+foldchange <- data.frame(metabolite = character(), date = character(), treatment = character(), pval = numeric(), fc = numeric())
+
+data_vis_fc <- data_vis %>% 
+  filter(!str_detect(replicate, "Tote"))
+
+for (metabolite in unique(data_vis_fc$metabolite)) {
+  for (group in unique(data_vis_fc$treatment)) {
+    if (group != 'C') {
+      temp <- data_vis_fc[data_vis_fc$metabolite == metabolite,]
+      
+      pval <- t.test(temp[temp$treatment == 'C',]$nmol_in_enviro,
+                     temp[temp$treatment == group,]$nmol_in_enviro)$p.value
+      fc <- (log2(mean(temp[temp$treatment == group,]$nmol_in_enviro) + 1) - 
+               log2(mean(temp[temp$treatment == 'C',]$nmol_in_enviro) + 1))
+      
+      new_row <- data.frame(metabolite = metabolite, treatment = group, pval = pval, fc = fc)
+      foldchange <- rbind(foldchange, new_row)
+    }
+  }
+}
+
+
+foldchange %>%
+  mutate(pval = -log10(pval)) %>% 
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x = fc, y = pval, color = col_id)) +
+  scale_color_identity(name = "treatment", guide = "legend",labels = c("Redfield Ratio - High N:P", "No N + Low P", 
+                                                                        "Low N:P, Low Dose", "T0 - No Added Nutrients", 
+                                                                        "Low N:P, High Dose", "No N + High P", "High P, No Fe", 
+                                                                        "Redfield Ratio - Low N:P", "Tote")) +
+  theme_bw() +
+  xlim(-6, 6) + 
+  xlab("Log2(Fold-Change)") + 
+  ylab("-Log10(p-value)") + 
+  xlim(-2, 3) + 
+  ggtitle("fold change calculated with respect to Control")
 ```
 
