@@ -394,6 +394,7 @@ write.csv(metadataframe, file = "csvs/metadataframe.csv", row.names = FALSE)
 quant_data %>%
   group_by(metabolite) %>%
   mutate(mean_nm=mean(nmol_in_enviro)) %>%
+  ungroup() %>% 
   arrange(mean_nm) %>%
   mutate(metabolite = fct_inorder(metabolite)) %>%
   ggplot(aes(y = metabolite, x = log10(nmol_in_enviro))) +

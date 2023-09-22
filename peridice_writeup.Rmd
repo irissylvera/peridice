@@ -1,0 +1,233 @@
+---
+title: "peridice_writeup"
+author: "Iris Kern"
+date: "2023-09-19"
+output: html_document
+---
+
+# Setup
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(plotly)
+
+set.seed(20)
+```
+
+# Data
+## Load in
+```{r}
+quant_data <- read_csv("csvs/quant_data.csv")
+metadataframe <- read_csv("csvs/metadataframe.csv")
+```
+
+## Wrangle
+```{r}
+data_vis <- quant_data %>%  
+  mutate(treatment = str_extract(replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_extract(replicate, "27June|30June|14July|21July|27July")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  select(metabolite, treatment, date, nM, replicate) %>% 
+  filter(metabolite != "Sodium 2-mercaptoethanesulfonate") %>% 
+  filter(metabolite != "Fumaric acid") %>% 
+  na.omit()
+
+level_order <- c("Tote", "C", "ZF", "ZL", "ZH", "LL", "LH", "RL", "RH")
+
+heat_level_order_treat <- c("2022-06-27 Tote", "2022-06-30 C",  "2022-07-14 C",  "2022-07-21 C",  "2022-07-27 C",  
+                            "2022-06-30 ZF", "2022-07-14 ZF", "2022-07-21 ZF", "2022-07-27 ZF",
+                            "2022-06-30 ZL", "2022-07-14 ZL", "2022-07-21 ZL", "2022-07-27 ZL", 
+                            "2022-06-30 ZH", "2022-07-14 ZH", "2022-07-21 ZH", "2022-07-27 ZH",
+                            "2022-06-30 LL", "2022-07-14 LL", "2022-07-21 LL", "2022-07-27 LL",
+                            "2022-06-30 LH", "2022-07-14 LH", "2022-07-21 LH", "2022-07-27 LH", 
+                            "2022-06-30 RL", "2022-07-14 RL", "2022-07-21 RL", "2022-07-27 RL",
+                            "2022-06-30 RH", "2022-07-14 RH", "2022-07-21 RH", "2022-07-27 RH")
+
+heat_level_order_date <- c("2022-06-27 Tote", "2022-06-30 C","2022-06-30 ZF", "2022-06-30 ZL", 
+                           "2022-06-30 ZH", "2022-06-30 LL","2022-06-30 LH", "2022-06-30 RL", "2022-06-30 RH",
+                           "2022-07-14 C", "2022-07-14 ZF", "2022-07-14 ZL", "2022-07-14 ZH", "2022-07-14 LL", 
+                           "2022-07-14 LH", "2022-07-14 RL", "2022-07-14 RH", 
+                           "2022-07-21 C", "2022-07-21 ZF", "2022-07-21 ZL", "2022-07-21 ZH", 
+                           "2022-07-21 LL", "2022-07-21 LH", "2022-07-21 RL", "2022-07-21 RH", 
+                           "2022-07-27 C", "2022-07-27 ZF", "2022-07-27 ZL",  
+                           "2022-07-27 ZH", "2022-07-27 LL", "2022-07-27 LH", "2022-07-27 RL",  "2022-07-27 RH")
+```
+
+## Data vis setup
+```{r}
+nb.cols <- 170
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+```
+
+# Metabolome Overview
+## Stacked barplots - relative concentrations
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(treatment != "Tote") %>% 
+  # filter(nmol_avg >= 0.5) %>% 
+  ggplot() +
+  geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "fill") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~date) + 
+  guides(fill=guide_legend(ncol=3)) + 
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+## Absolute metabolomic concentrations - biomass?
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(treatment != "Tote") %>% 
+  ggplot() +
+  geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~date) + 
+  guides(fill=guide_legend(ncol=5)) + 
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+## Timeseries
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  mutate(sd = sd(nM)) %>% 
+  # slice(1) %>%
+  distinct(nmol_avg, .keep_all = TRUE) %>%
+  # mutate(col_id=case_when(
+  #   treatment=="C"~"plum2",
+  #   treatment=="ZL"~"darkslategray2",
+  #   treatment=="ZH"~"lightseagreen",
+  #   treatment=="LL"~"gold",
+  #   treatment=="LH"~"lightcoral",
+  #   treatment=="RL"~"orange",
+  #   treatment=="RH"~"brown3",
+  #   treatment=="ZF"~"mediumpurple3", 
+  #   TRUE~"grey50"
+  # )) %>%
+  filter(str_detect(metabolite, "Proline betaine")) %>% 
+  # filter(str_detect(treatment, "RH|RL")) %>% 
+  ggplot(aes(x = date, y = nmol_avg, color = factor(treatment, levels = level_order))) +
+  geom_line() +
+  geom_point() +
+  # geom_errorbar(aes(ymin = nmol_avg - sd, ymax = nmol_avg + sd)) + 
+  scale_color_manual(values = c("grey50", "plum2", "mediumpurple3", "darkslategray2",
+                                "lightseagreen", "gold", "lightcoral", "orange", "brown3"), 
+                     labels = c("T0", "Control - no nutrients added", "No Nitrogen or Phosphorus, low amount of Iron added", 
+                                "No Nitrogen, low amount of Phosphorus and Iron added", "No Nitrogen, high amount of Phosphorus and Iron added", 
+                                "Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added", 
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"), 
+                     name = "Treatment") + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  ggtitle("Timeseries of Proline Betaine, Summarised by Triplicate") + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") 
+```
+
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  mutate(sd = sd(nM)) %>% 
+  # slice(1) %>%
+  distinct(nmol_avg, .keep_all = TRUE) %>%
+  # mutate(col_id=case_when(
+  #   treatment=="C"~"plum2",
+  #   treatment=="ZL"~"darkslategray2",
+  #   treatment=="ZH"~"lightseagreen",
+  #   treatment=="LL"~"gold",
+  #   treatment=="LH"~"lightcoral",
+  #   treatment=="RL"~"orange",
+  #   treatment=="RH"~"brown3",
+  #   treatment=="ZF"~"mediumpurple3", 
+  #   TRUE~"grey50"
+  # )) %>%
+  filter(str_detect(metabolite, "Urea")) %>% 
+  # filter(str_detect(treatment, "RH|RL")) %>% 
+  ggplot(aes(x = date, y = nmol_avg, color = factor(treatment, levels = level_order))) +
+  geom_line() +
+  geom_point() +
+  # geom_errorbar(aes(ymin = nmol_avg - sd, ymax = nmol_avg + sd)) + 
+  scale_color_manual(values = c("grey50", "plum2", "mediumpurple3", "darkslategray2",
+                                "lightseagreen", "gold", "lightcoral", "orange", "brown3"), 
+                     labels = c("T0", "Control - no nutrients added", "No Nitrogen or Phosphorus, low amount of Iron added", 
+                                "No Nitrogen, low amount of Phosphorus and Iron added", "No Nitrogen, high amount of Phosphorus and Iron added", 
+                                "Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added", 
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"), 
+                     name = "Treatment") + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  ggtitle("Timeseries of Urea, Summarised by Triplicate") + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") 
+```
+
+# Fold change - specific metabolites
+## calculating fold change and kmeans
+```{r}
+data_vis_fc <- data_vis %>% 
+  select(-c("replicate")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  pivot_wider(names_from = treatment, values_from = nM, values_fn = mean) %>% 
+  pivot_longer(cols = c(ZF, ZL, ZH, LL, LH, RL, RH)) %>% 
+  mutate(fold_change = log2(value/C))
+
+data_vis_km <- data_vis %>% 
+  pivot_wider(names_from = metabolite, values_from = nM) %>% 
+  select(-c("treatment", "date")) %>% 
+  column_to_rownames("replicate") %>% 
+  data.matrix() %>%
+  `[<-`(is.na(.), 0) %>%
+  scale() %>%
+  t() %>%
+  kmeans(centers = 6) %>% 
+  pluck("cluster") %>%
+  as.data.frame() %>%
+  set_names("cluster") %>%
+  rownames_to_column("metabolite")
+
+data_vis_cluster <- data_vis_fc %>% 
+  left_join(data_vis_km) %>% 
+  rename(control = C, treatment = name, nM = value) %>% 
+  mutate(cluster = as.numeric(cluster))
+```
+
+## visualizations
+```{r}
+data_vis_cluster %>% 
+  filter(fold_change < 0) %>% 
+  ggplot() + 
+  geom_point(aes(x = treatment, y = fold_change)) + 
+  facet_wrap(~date) + 
+  theme_bw()
+
+data_vis_cluster %>% 
+  na.omit() %>% 
+  group_by(cluster, date, treatment) %>% 
+  mutate(avg_fc = mean(fold_change)) %>% 
+  ggplot(aes(x = date, y = avg_fc, color = treatment, shape = factor(cluster))) + 
+  geom_point() +
+  geom_line() + 
+  theme_bw() + 
+  facet_wrap(~cluster)
+
+metab_fc <- data_vis_cluster %>% 
+  ggplot(aes(x = metabolite, y = fold_change, color = treatment)) + 
+  geom_point() + 
+  facet_wrap(~cluster)
+
+ggplotly(metab_fc)
+```
+
+
