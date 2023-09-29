@@ -191,7 +191,7 @@ data_vis_km <- data_vis %>%
   `[<-`(is.na(.), 0) %>%
   scale() %>%
   t() %>%
-  kmeans(centers = 6) %>% 
+  kmeans(centers = 9) %>% 
   pluck("cluster") %>%
   as.data.frame() %>%
   set_names("cluster") %>%
@@ -206,28 +206,143 @@ data_vis_cluster <- data_vis_fc %>%
 ## visualizations
 ```{r}
 data_vis_cluster %>% 
-  filter(fold_change < 0) %>% 
-  ggplot() + 
-  geom_point(aes(x = treatment, y = fold_change)) + 
-  facet_wrap(~date) + 
-  theme_bw()
-
-data_vis_cluster %>% 
   na.omit() %>% 
   group_by(cluster, date, treatment) %>% 
   mutate(avg_fc = mean(fold_change)) %>% 
-  ggplot(aes(x = date, y = avg_fc, color = treatment, shape = factor(cluster))) + 
+  ggplot(aes(x = date, y = avg_fc, color = factor(treatment, levels = level_order))) + 
   geom_point() +
   geom_line() + 
   theme_bw() + 
-  facet_wrap(~cluster)
+  facet_wrap(~cluster) +
+  scale_color_manual(values = c("mediumpurple3", "darkslategray2",
+                                "lightseagreen", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("No Nitrogen or Phosphorus",
+                                "No Nitrogen, low amount of Phosphorus", "No Nitrogen, high amount of Phosphorus",
+                                "Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added",
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"),
+                     name = "Treatment")
 
-metab_fc <- data_vis_cluster %>% 
-  ggplot(aes(x = metabolite, y = fold_change, color = treatment)) + 
-  geom_point() + 
-  facet_wrap(~cluster)
-
-ggplotly(metab_fc)
 ```
+The metabolites that are most influenced by ZF (cluster 1) are less influenced by nutrient ratios - indicates phosphorus limitation for those metabolites.
+How do i visualize the metabolites in these categories and select a few?
+```{r}
+nb.cols <- 30
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+
+plot <- data_vis_cluster %>% 
+  na.omit() %>% 
+  filter(cluster == 3) %>% 
+  ggplot() +
+  geom_col(aes(x = date, y = nM, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) +
+  facet_wrap(~treatment)
+
+ggplotly(plot)
+
+plotline <- data_vis_cluster %>% 
+  na.omit() %>% 
+  filter(cluster == 4) %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = fold_change, color = metabolite), position = "stack") +
+  scale_color_manual(values = mycolors) +
+  facet_wrap(~treatment)
+
+ggplotly(plotline)
+
+data_vis_cluster %>% 
+  na.omit() %>% 
+  filter(str_detect(metabolite, "Gonyol")) %>% 
+  ggplot() +
+  geom_line(aes(x = date, y = fold_change, color = metabolite), position = "stack") +
+  # scale_color_manual(values = mycolors) +
+  facet_wrap(~treatment)
+
+```
+5-oxoproline is associated with cyanobacteria, derivative of glutamic acid
+
+gonyol and dimethysulfonioacetate - dinoflagellates and phytoplankton, could be potential alternatives than DMSP for marine sulfur cycle https://pubmed.ncbi.nlm.nih.gov/32113191/
+
+5-methylcytosine - highest fold change in ZH, also ZF. Not high in ZL, why? Low P with iron is correct ratio? RL and ZL are only treatments where 5-methylcytosine declines
+https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-022-01340-w 
+https://www.frontiersin.org/articles/10.3389/fmicb.2019.01291/full 
+
+N-acetyl-D-glucosamine, O-Propionylcarnitine, and Sarcosine all increase in RL first and then LL, no others, everything returns to base at end.
+
+Melamine only increases in RL, but all return to base at end
+
+Acetylcholine - peak at 2-week period and then peaks again at month in LL, RH, RL, ZH, ZL. Not in LH or ZF.
+
+Acetylglycine - peaks at 2-week period and then peaks again at month in LH, RH, RL, ZH, ZL. Not in LL or ZF.
+
+Chitobiose - associated with cyanobacteria and eukaryotic phytoplankton, upregulated in the LH, LL, RH, RL, ZF. Not in ZH or ZL.
+
+Homarine - no trend really, de-regulated in RH at 2 week period
+
+Sucrose - upregulated in the ZL, de-regulated in all others
+
+Gonyol - upregulated in RL and LH
+
+Key thoughts to explore: nutrient enrichment saturation? Interplay between ratios, P and N limiting each other?
+
+2-ketoglutaric acid - key intermediate in the TCA cycle. Upregulated in RH, LH, higher in RL until very end. Lowest metabolite in all Z treatments. Disruption of the TCA cycle? LL has decreased until right at the very end of the month. 
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4651028/ 
+
+DMSP : https://www.nature.com/articles/s41396-023-01375-3 
+
+Phytoplankton: https://journals.asm.org/doi/full/10.1128/msystems.01334-20#fig2 
+
+MUST READ: https://www.frontiersin.org/articles/10.3389/fmars.2022.864796/full DONE
+https://journals.asm.org/doi/full/10.1128/spectrum.04000-22 
+https://www.dl.begellhouse.com/journals/7dd4467e7de5b7ef,3992b3431844bd87,35aa504b60398141.html 
 
 
+OVERALL:
+Which metabolites are upregulated in only Rs? Only Ls? Only Zs? are there metabolites that are only de-regulated in the Zs? are there metabolites that are de-regulated in the Ls? Rs? What about the relationship between L and H? How does ZF compare to ZL/H?
+
+What do these trends indicate of the microbial community health and composition? Does rate or ratio have more of an impact on the metabolic activity of the community? On a 2-week scale do the metabolic trends differ from the final 2 weeks? Maybe split up by week?
+
+
+On a 2 week scale:
+```{r}
+biweek_clust <- data_vis_cluster %>% 
+  na.omit() %>% 
+  group_by(cluster, date, treatment) %>% 
+  mutate(avg_fc = mean(fold_change)) %>% 
+  filter(str_detect(date, "7-14|7-21|7-27")) %>% 
+  ggplot(aes(x = date, y = avg_fc, color = factor(treatment, levels = level_order))) + 
+  geom_point() +
+  geom_line() + 
+  theme_bw() + 
+  facet_wrap(~cluster) +
+  scale_color_manual(values = c("mediumpurple3", "darkslategray2",
+                                "lightseagreen", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("No Nitrogen or Phosphorus",
+                                "No Nitrogen, low amount of Phosphorus", "No Nitrogen, high amount of Phosphorus",
+                                "Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added",
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"),
+                     name = "Treatment")
+
+ggplotly(biweek_clust)
+```
+Different groups: (+) {-}
+1: (LH > RH > ZH > RL > LL > ZL) > {ZF}
+LH is a lot higher foldchange, RH, ZH, RL all group together. LL and ZL group together.
+
+2: (RH > LL > RL > LH > ZH) > {ZL > ZF}
+RH is a lot higher foldchange, LL, RL, LH, ZH all group together, ZL and ZF group together.
+
+3: (RH > RL > ZL > ZH > LL > LH) > {ZF}
+RH, RL, ZL, ZH all group together, LL and LH group, ZF on the bottom.
+
+4. (RH) > {LH > RL > LL > ZH > ZL > ZF}
+All very similar, all start below 0 and have positive trend
+
+5. (ZF > LL > LH > ZL) > {RL > ZL > ZH} 
+All group together, all other than ZF start above 0. 
+
+6. (RL > RH > LL > LH > ZH > ZL) > {ZF} 
+
+
+7. (LL > LH > ZF > RL > ZL > ZH > RH) 
+8. (RH > RL > LH) > {LL > ZL > ZH > ZF}
+9. (RH > RL > LH) > {ZF > ZH > LL > ZL }
