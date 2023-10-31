@@ -66,7 +66,7 @@ data_vis %>%
   distinct(nmol_avg, .keep_all = TRUE) %>% 
   filter(nmol_avg < 0.5) %>% 
   filter(nmol_avg >= 1e-4) %>% 
-  # filter(str_detect(treatment, "LL|LH|RL|RH")) %>% 
+  filter(str_detect(treatment, "LL|LH|RL|RH")) %>% 
   filter(!str_detect(metabolite, "Fumaric acid")) %>% 
   ggplot() +
   geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "fill") +

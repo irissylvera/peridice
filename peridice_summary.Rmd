@@ -1,0 +1,220 @@
+---
+title: "peridice_summary"
+author: "Iris Kern"
+date: "2023-10-02"
+output: html_document
+---
+
+# FIGURES FOR SCOPE AND SECOND YEAR TALK
+heatmap (clustered), NMDS (RH/RL/LH/LL), metab group 1 and group 2 - kmeans clusters
+
+# Setup
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(plotly)
+library(vegan)
+library(heatmaply)
+
+set.seed(20)
+```
+
+# Data
+## Load in
+```{r}
+quant_data <- read_csv("csvs/quant_data.csv")
+metadataframe <- read_csv("csvs/metadataframe.csv")
+```
+
+## Wrangle
+```{r}
+data_vis <- quant_data %>%  
+  mutate(treatment = str_extract(replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_extract(replicate, "27June|30June|14July|21July|27July")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  select(metabolite, treatment, date, nM, replicate) %>% 
+  filter(metabolite != "Sodium 2-mercaptoethanesulfonate") %>% 
+  filter(metabolite != "Fumaric acid") %>% 
+  na.omit()
+
+level_order <- c("Tote", "C", "ZF", "ZL", "ZH", "LL", "LH", "RL", "RH")
+
+heat_level_order_treat <- c("2022-06-27 Tote", "2022-06-30 C",  "2022-07-14 C",  "2022-07-21 C",  "2022-07-27 C",  
+                            "2022-06-30 ZF", "2022-07-14 ZF", "2022-07-21 ZF", "2022-07-27 ZF",
+                            "2022-06-30 ZL", "2022-07-14 ZL", "2022-07-21 ZL", "2022-07-27 ZL", 
+                            "2022-06-30 ZH", "2022-07-14 ZH", "2022-07-21 ZH", "2022-07-27 ZH",
+                            "2022-06-30 LL", "2022-07-14 LL", "2022-07-21 LL", "2022-07-27 LL",
+                            "2022-06-30 LH", "2022-07-14 LH", "2022-07-21 LH", "2022-07-27 LH", 
+                            "2022-06-30 RL", "2022-07-14 RL", "2022-07-21 RL", "2022-07-27 RL",
+                            "2022-06-30 RH", "2022-07-14 RH", "2022-07-21 RH", "2022-07-27 RH")
+
+heat_level_order_date <- c("2022-06-27 Tote", "2022-06-30 C","2022-06-30 ZF", "2022-06-30 ZL", 
+                           "2022-06-30 ZH", "2022-06-30 LL","2022-06-30 LH", "2022-06-30 RL", "2022-06-30 RH",
+                           "2022-07-14 C", "2022-07-14 ZF", "2022-07-14 ZL", "2022-07-14 ZH", "2022-07-14 LL", 
+                           "2022-07-14 LH", "2022-07-14 RL", "2022-07-14 RH", 
+                           "2022-07-21 C", "2022-07-21 ZF", "2022-07-21 ZL", "2022-07-21 ZH", 
+                           "2022-07-21 LL", "2022-07-21 LH", "2022-07-21 RL", "2022-07-21 RH", 
+                           "2022-07-27 C", "2022-07-27 ZF", "2022-07-27 ZL",  
+                           "2022-07-27 ZH", "2022-07-27 LL", "2022-07-27 LH", "2022-07-27 RL",  "2022-07-27 RH")
+```
+
+# heatmap
+```{r}
+quant_nmds_heat <- data_vis %>% 
+  group_by(metabolite, treatment, date) %>%
+  summarise(avg_nmol = mean(nM)) %>%
+  ungroup() %>%
+  mutate(id = paste(date, treatment)) %>% 
+  filter(str_detect(treatment, "RH|RL|LH|LL"))
+
+plotheatmap <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>%
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  mutate(id=factor(id, levels=c(heat_level_order_treat))) %>%
+  arrange(id) %>%
+  column_to_rownames("id") %>%
+  data.matrix() %>% 
+  heatmaply(fontsize_row = 10, fontsize_col = 7) # %>%
+  # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+
+# make clustered heatmap from scratch using pheatmap
+
+plotheatmap
+```
+
+
+## Data vis setup
+```{r}
+nb.cols <- 170
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+```
+
+# Metabolome Overview
+## Stacked barplots - relative concentrations
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(treatment != "Tote") %>% 
+  # filter(nmol_avg >= 0.5) %>% 
+  ggplot() +
+  geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "fill") +
+  # scale_fill_manual(values = mycolors) + 
+  facet_wrap(~date) + 
+  guides(fill=guide_legend(ncol=3)) + 
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+
+```{r}
+nb.cols <- 170
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(!str_detect(treatment, "Tote|ZF|ZL|ZH")) %>% 
+  ggplot() +
+  geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~date) + 
+  guides(fill=guide_legend(ncol=5)) + 
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+# Fold change - specific metabolites
+## calculating fold change and kmeans
+```{r}
+data_vis_fc <- data_vis %>% 
+  select(-c("replicate")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  pivot_wider(names_from = treatment, values_from = nM, values_fn = mean) %>% 
+  pivot_longer(cols = c(ZF, ZL, ZH, LL, LH, RL, RH)) %>% 
+  mutate(fold_change = log2(value/C))
+
+data_vis_km <- data_vis %>% 
+  pivot_wider(names_from = metabolite, values_from = nM) %>% 
+  select(-c("treatment", "date")) %>% 
+  column_to_rownames("replicate") %>% 
+  data.matrix() %>%
+  `[<-`(is.na(.), 0) %>%
+  scale() %>%
+  t() %>%
+  kmeans(centers = 6) %>% 
+  pluck("cluster") %>%
+  as.data.frame() %>%
+  set_names("cluster") %>%
+  rownames_to_column("metabolite")
+
+data_vis_cluster <- data_vis_fc %>% 
+  left_join(data_vis_km) %>% 
+  rename(control = C, treatment = name, nM = value) %>% 
+  mutate(cluster = as.numeric(cluster))
+```
+
+
+```{r}
+data_vis_cluster %>% 
+  na.omit() %>% 
+  group_by(cluster, date, treatment) %>% 
+  filter(str_detect(treatment, "RH|RL|LH|LL")) %>% 
+  mutate(avg_fc = mean(fold_change)) %>% 
+  ggplot(aes(x = date, y = avg_fc, color = factor(treatment, levels = level_order))) + 
+  geom_point() +
+  geom_line() + 
+  theme_bw() + 
+  facet_wrap(~cluster) +
+  scale_color_manual(values = c("mediumpurple3", "darkslategray2",
+                                "lightseagreen", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("No Nitrogen or Phosphorus",
+                                "No Nitrogen, low amount of Phosphorus", "No Nitrogen, high amount of Phosphorus",
+                                "Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added",
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"),
+                     name = "Treatment") +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
+```
+Summary of 6 different groups:
+Group 1: no change, unaffected by nutrient changes
+Group 2: LH,LL increased at 2/3 week level. all others no change (ZL decreased foldchange)
+Group 3: spike in all treatments apart from ZH, all decrease at 3 week, then move back up with ZH increasing the most, second is ZL.
+Group 4: spike in RH, LH, none others.
+Group 5: Spike in RH, RL at 2 week mark, LH spikes at 3. All return to similar range at 4 week mark.
+Group 6: RH, RL steady increase across 4 weeks, same with LH but that dips down at 4 week mark. All others decrease at 2 weeks, come back up at 4.
+
+Why are different metabolites responding in these different ways?
+
+```{r}
+plot <- data_vis_cluster %>% 
+  na.omit() %>% 
+  filter(cluster == 1) %>% 
+  ggplot() +
+  geom_col(aes(x = date, y = nM, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) +
+  facet_wrap(~treatment)
+
+ggplotly(plot)
+
+data_clust <- data_vis_cluster %>%  
+  select(cluster, metabolite) %>% 
+  distinct(metabolite, .keep_all = TRUE)
+```
+
+Is it rate? or is it ratio? Interplay between RH,RL,LH,LL. 
+ANOVA/NMDS and k-means
+```{r}
+
+```
+

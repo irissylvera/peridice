@@ -129,12 +129,10 @@ metadataframe <- peak_list %>%
   group_by(timepoint, treatment, replicate)
 
 # parameters
-area_min   <- 1000 # peak area minimum - calculated from peak intensity of chromatogram
+area_min   <- 1 # peak area minimum - calculated from peak intensity of chromatogram
 rt_flex    <- 0.4 # retention time flexibility - accounts variance across matrices and time on machine
 blk_thresh <- 0.3 # blank sample threshold to calculate difference for samples
 sn_min     <- 4 # signal to noise ratio minimum
-height_min <- 1000 # noise threshold minimum
-height_max <- 1.0e10 # not as significant for Orbitrap, important for TQS
 ```
 
 # Quality Control
@@ -197,7 +195,9 @@ peak_list_all_flags <- peak_list %>%
   mutate(area_with_qc   = ifelse(is.na(area_min_flag), num_area, NA)) %>%
   select(replicate:num_area, area_with_qc, everything()) %>%
   left_join(sn_table) %>%
-  mutate(sn_flag = ifelse((signal_to_noise < sn_min), "sn_flag", NA))
+  mutate(sn_flag = ifelse((signal_to_noise < sn_min), "sn_flag", NA)) %>% 
+  filter_at(vars(blank_flag, area_min_flag, sn_flag),all_vars(is.na(.))) %>% 
+  filter(!str_detect(area, "#N/A"))
 ```
 
 ## load in internal standards, generate qc_data, sampkey, and filtered out is areas vs non is areas
@@ -461,7 +461,7 @@ quant_data <- peak_list %>%
   na.omit() %>% 
   filter(!metabolite %in% ingalls_standards$internal_standards) %>% 
   filter(metabolite != "DL-Histidine, 15N") %>% 
-  filter(nM > 0) %>% 
+  filter(nM > -0.01) %>% 
   filter(!str_detect(replicate, "Std"))
   
 quant_data %>%

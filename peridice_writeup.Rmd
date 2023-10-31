@@ -94,6 +94,19 @@ data_vis %>%
   guides(fill=guide_legend(ncol=5)) + 
   theme_bw() + 
   theme(legend.position = "none")
+
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(treatment != "Tote") %>% 
+  ggplot() +
+  geom_col(aes(x = date, y = nmol_avg, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~treatment) + 
+  guides(fill=guide_legend(ncol=5)) + 
+  theme_bw() + 
+  theme(legend.position = "none")
 ```
 
 ## Timeseries
@@ -153,7 +166,7 @@ data_vis %>%
   #   treatment=="ZF"~"mediumpurple3", 
   #   TRUE~"grey50"
   # )) %>%
-  filter(str_detect(metabolite, "Urea")) %>% 
+  filter(str_detect(metabolite, "5-Methylcytosine")) %>% 
   # filter(str_detect(treatment, "RH|RL")) %>% 
   ggplot(aes(x = date, y = nmol_avg, color = factor(treatment, levels = level_order))) +
   geom_line() +
@@ -168,7 +181,7 @@ data_vis %>%
                      name = "Treatment") + 
   guides(fill=guide_legend(ncol=2)) + 
   theme_bw() + 
-  ggtitle("Timeseries of Urea, Summarised by Triplicate") + 
+  ggtitle("Timeseries of 5-methylcytosine, Summarised by Triplicate") + 
   xlab("Date") + 
   ylab("nM (nmol per L)") 
 ```
@@ -191,7 +204,7 @@ data_vis_km <- data_vis %>%
   `[<-`(is.na(.), 0) %>%
   scale() %>%
   t() %>%
-  kmeans(centers = 9) %>% 
+  kmeans(centers = 6) %>% 
   pluck("cluster") %>%
   as.data.frame() %>%
   set_names("cluster") %>%
@@ -222,6 +235,40 @@ data_vis_cluster %>%
                                 "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"),
                      name = "Treatment")
 
+data_vis_cluster %>% 
+  na.omit() %>% 
+  group_by(cluster, date, treatment) %>% 
+  mutate(avg_nm = mean(nM)) %>% 
+  ggplot(aes(x = date, y = avg_nm, color = factor(treatment, levels = level_order))) + 
+  geom_point() +
+  geom_line() + 
+  theme_bw() +  
+  facet_wrap(~cluster) +
+  scale_color_manual(values = c("mediumpurple3", "darkslategray2",
+                                "lightseagreen", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("No Nitrogen or Phosphorus",
+                                "No Nitrogen, low amount of Phosphorus", "No Nitrogen, high amount of Phosphorus",
+                                "Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added",
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"),
+                     name = "Treatment")
+
+data_vis_cluster %>% 
+  na.omit() %>% 
+  group_by(cluster, date, treatment) %>% 
+  mutate(avg_nm = mean(nM)) %>% 
+  ggplot(aes(x = date, y = avg_nm, color = factor(treatment, levels = level_order))) + 
+  geom_point() +
+  geom_line() + 
+  theme_bw() +  
+  facet_wrap(~cluster) +
+  scale_color_manual(values = c("mediumpurple3", "darkslategray2",
+                                "lightseagreen", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("No Nitrogen or Phosphorus",
+                                "No Nitrogen, low amount of Phosphorus", "No Nitrogen, high amount of Phosphorus",
+                                "Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added",
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"),
+                     name = "Treatment")
+
 ```
 The metabolites that are most influenced by ZF (cluster 1) are less influenced by nutrient ratios - indicates phosphorus limitation for those metabolites.
 How do i visualize the metabolites in these categories and select a few?
@@ -241,10 +288,12 @@ ggplotly(plot)
 
 plotline <- data_vis_cluster %>% 
   na.omit() %>% 
-  filter(cluster == 4) %>% 
+  filter(cluster == 3) %>% 
+  group_by(treatment, date, metabolite) %>% 
+  mutate(avg_nm = )
   ggplot() +
-  geom_line(aes(x = date, y = fold_change, color = metabolite), position = "stack") +
-  scale_color_manual(values = mycolors) +
+  geom_col(aes(x = date, y = nM, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) +
   facet_wrap(~treatment)
 
 ggplotly(plotline)
