@@ -1,0 +1,630 @@
+---
+title: "peridice_master"
+author: "Iris Kern"
+date: "2023-11-03"
+output: html_document
+---
+
+# Setup
+## Libraries
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(plotly)
+library(vegan)
+library(heatmaply)
+
+set.seed(20)
+```
+
+## Datasets - metabolites and metadata
+```{r}
+quant_data <- read_csv("csvs/quant_data.csv")
+metadataframe <- read_csv("csvs/metadataframe.csv")
+pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
+  select(tank = Tank, treatment = Treatment2, date = Date, pn = `PN (uM)`, pc = `PC (uM)`, cn = Cnratio) %>% 
+  mutate(triplicate = str_extract(tank, "\\d"))
+```
+
+## Wrangle and setup
+```{r}
+data_vis <- quant_data %>%  
+  mutate(treatment = str_extract(replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_extract(replicate, "27June|30June|14July|21July|27July")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  select(metabolite, treatment, date, nM, replicate) %>% 
+  filter(metabolite != "Sodium 2-mercaptoethanesulfonate") %>% 
+  filter(metabolite != "Fumaric acid") %>% 
+  na.omit()
+
+level_order <- c("T0", "C", "ZF", "ZL", "ZH", "LL", "LH", "RL", "RH")
+
+heat_level_order_treat <- c("2022-06-27 Tote", "2022-06-30 C",  "2022-07-14 C",  "2022-07-21 C",  "2022-07-27 C",  
+                            "2022-06-30 ZF", "2022-07-14 ZF", "2022-07-21 ZF", "2022-07-27 ZF",
+                            "2022-06-30 ZL", "2022-07-14 ZL", "2022-07-21 ZL", "2022-07-27 ZL", 
+                            "2022-06-30 ZH", "2022-07-14 ZH", "2022-07-21 ZH", "2022-07-27 ZH",
+                            "2022-06-30 LL", "2022-07-14 LL", "2022-07-21 LL", "2022-07-27 LL",
+                            "2022-06-30 LH", "2022-07-14 LH", "2022-07-21 LH", "2022-07-27 LH", 
+                            "2022-06-30 RL", "2022-07-14 RL", "2022-07-21 RL", "2022-07-27 RL",
+                            "2022-06-30 RH", "2022-07-14 RH", "2022-07-21 RH", "2022-07-27 RH")
+
+heat_level_order_date <- c("2022-06-27 Tote", "2022-06-30 C","2022-06-30 ZF", "2022-06-30 ZL", 
+                           "2022-06-30 ZH", "2022-06-30 LL","2022-06-30 LH", "2022-06-30 RL", "2022-06-30 RH",
+                           "2022-07-14 C", "2022-07-14 ZF", "2022-07-14 ZL", "2022-07-14 ZH", "2022-07-14 LL", 
+                           "2022-07-14 LH", "2022-07-14 RL", "2022-07-14 RH", 
+                           "2022-07-21 C", "2022-07-21 ZF", "2022-07-21 ZL", "2022-07-21 ZH", 
+                           "2022-07-21 LL", "2022-07-21 LH", "2022-07-21 RL", "2022-07-21 RH", 
+                           "2022-07-27 C", "2022-07-27 ZF", "2022-07-27 ZL",  
+                           "2022-07-27 ZH", "2022-07-27 LL", "2022-07-27 LH", "2022-07-27 RL",  "2022-07-27 RH")
+```
+
+# Metadata overview
+```{r}
+pcpn %>% 
+  mutate(cn_rank=(cn-min(cn))/(max(cn)-min(cn))) %>%
+  filter(str_detect(treatment, "RH|RL|LH|LL|C")) %>% 
+  group_by(triplicate, treatment, date) %>%  
+  # mutate(avg_cn = mean(cn)) %>% 
+  # filter(triplicate == 2) %>% 
+  ggplot(aes(x = date, y = cn, group = interaction(treatment, triplicate), color = treatment)) +
+  geom_line() + 
+  geom_point() + 
+  # scale_color_manual(values = c("plum2", "gold", "lightcoral", "darkorange", "brown3"), name = "Treatment") +
+  facet_wrap(~treatment) + 
+  theme_bw() +  
+  ylab("C to N Ratio") + 
+  xlab("Date")
+
+pcpn %>% 
+  mutate(pc_rank=(pc-min(pc))/(max(pc)-min(pc))) %>%
+  filter(!str_detect(treatment, "Tote")) %>% 
+  group_by(triplicate, treatment, date) %>%  
+  # mutate(avg_cn = mean(cn)) %>% 
+  # filter(triplicate == 2) %>% 
+  ggplot(aes(x = date, y = pc, group = interaction(treatment, triplicate), color = treatment)) +
+  geom_line() + 
+  geom_point() + 
+  # scale_color_manual(values = c("plum2", "gold", "lightcoral", "darkorange", "brown3"), name = "Treatment") +
+  facet_wrap(~treatment, scales = "free") + 
+  theme_bw() +  
+  ylab("Particulate Carbon") + 
+  xlab("Date")
+```
+
+# Statistical Distributions
+## Heatmap
+```{r}
+quant_nmds_heat <- data_vis %>% 
+  group_by(metabolite, treatment, date) %>%
+  summarise(avg_nmol = mean(nM)) %>%
+  ungroup() %>%
+  mutate(id = paste(date, treatment)) 
+# %>% 
+#   filter(str_detect(treatment, "RH|RL|LH|LL"))
+
+heatmap_data <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>%
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  mutate(id=factor(id, levels=c(heat_level_order_treat))) %>%
+  arrange(id) %>%
+  column_to_rownames("id")
+
+
+plotheatmap <- heatmap_data %>%
+  data.matrix() %>% 
+  heatmaply(fontsize_row = 10, fontsize_col = 7) # %>%
+  # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+
+# make clustered heatmap from scratch using pheatmap
+
+plotheatmap
+```
+Metabolites that die off within first 3 days - bottle effects?
+
+## Foldchange
+```{r}
+data_vis_fc <- data_vis %>% 
+  select(-c("replicate")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  pivot_wider(names_from = treatment, values_from = nM, values_fn = mean) %>% 
+  pivot_longer(cols = c(ZF, ZL, ZH, LL, LH, RL, RH)) %>% 
+  mutate(fold_change = value/C)
+```
+
+## K Means
+```{r}
+data_vis_km <- data_vis %>% 
+  pivot_wider(names_from = metabolite, values_from = nM) %>% 
+  select(-c("treatment", "date")) %>% 
+  column_to_rownames("replicate") %>% 
+  data.matrix() %>%
+  `[<-`(is.na(.), 0) %>%
+  scale() %>%
+  t() %>%
+  kmeans(centers = 6) %>% 
+  pluck("cluster") %>%
+  as.data.frame() %>%
+  set_names("cluster") %>%
+  rownames_to_column("metabolite")
+
+data_vis_cluster <- data_vis_fc %>% 
+  left_join(data_vis_km) %>% 
+  rename(control = C, treatment = name, nM = value) %>% 
+  mutate(cluster = factor(cluster))
+```
+
+## Second Heatmap Attempt with K Means
+```{r}
+ranked_conc <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) 
+
+ranked_conc %>% 
+  ggplot() +
+  geom_raster(aes(x = metabolite, y = id, fill = norm_conc)) +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(low = "steelblue", mid = "grey90",
+                       high = "goldenrod1", midpoint = 16.5,
+                       breaks=c(0, 16.5, 33), labels=c(
+                         "Very little of a given compound",
+                         "Median compound abundance",
+                         "Compound maximum"
+                       )) +
+  new_scale_fill() + 
+  geom_tile(aes(x=metabolite, y=-1.5, fill=cluster), height=3, data = data_vis_cluster) + 
+  # scale_fill_discrete(guide="none") +
+  # theme_void() +
+  theme(legend.position = "top",
+        legend.key.width = unit(dev.size()[1] / 6, "inches"),
+        legend.text = element_text(size=8))
+  # coord_cartesian(ylim=c(0, NA)) +
+  # annotate("rect", xmin=-20, xmax=0, ymin=c(0.5, 4.5, 8.5, 12.5), ymax=c(4.5, 8.5, 12.5, 16.5),
+  #          fill=c("#0d374f", "#367776", "#1f92d0", "lightblue2")) 
+  # annotate("text", x = -11, y=c(2.5, 6.5, 10.5, 14.5), label=c("6-30", "7-14", "7-21", "7-27"),
+  #          angle=90, color="white", size=6) +
+  # annotate("text", x=205, y=-10, label="Metabolite", size=6) +
+  # annotate("text", x=Inf, y=-10, label="k-means clusters with n=5", hjust=1) +
+  # annotate("tile", x=312, y=seq(-8, -13, length.out=5), width=10, height=2,
+  #          fill=hcl(h = seq(15, 375, length = 6), l = 65, c = 100)[1:5])
+```
+
+
+
+
+
+## Visualization Foldchange by Cluster
+```{r}
+data_vis_cluster %>% 
+  na.omit() %>% 
+  group_by(cluster, date, treatment) %>% 
+  filter(str_detect(treatment, "RH|RL|LH|LL")) %>% 
+  mutate(avg_fc = mean(fold_change)) %>% 
+  ggplot(aes(x = date, y = log2(avg_fc), color = factor(treatment, levels = level_order))) + 
+  geom_point() +
+  geom_line() + 
+  theme_bw() + 
+  facet_wrap(~cluster) +
+scale_color_manual(values = c("gold", "lightcoral","orange", "brown3"),
+                     labels = c("6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
+  ylab("Average Fold Change") + 
+  xlab("Date")
+
+data_vis_cluster %>% 
+  na.omit() %>% 
+  group_by(cluster, date, treatment) %>% 
+  # filter(str_detect(treatment, "RH|RL|LH|LL")) %>% 
+  mutate(avg_fc = mean(fold_change)) %>% 
+  ggplot(aes(x = date, y = log2(avg_fc), color = factor(treatment, levels = level_order))) + 
+  geom_point() +
+  geom_line() + 
+  theme_bw() + 
+  facet_wrap(~cluster) +
+  scale_color_manual(values = c("mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("0N:1P, low dose Fe","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
+  ylab("Average Fold Change") + 
+  xlab("Date")
+
+```
+
+## NMDS for just R/L Treatments
+```{r}
+quant_nmds <- data_vis %>% 
+  # arrange(desc(nM)) %>% 
+  # group_by(metabolite, replicate) %>% 
+  # slice(1) %>% 
+  group_by(metabolite, treatment, date) %>%
+  summarise(avg_nmol = mean(nM)) %>%
+  ungroup() %>%
+  # complete(metabolite, date, treatment) %>%
+  # mutate(avg_nmol = replace_na(avg_nmol, 0)) %>%
+  mutate(id = paste(date, treatment)) %>% 
+  filter(!str_detect(id, "Tote|ZF|ZH|ZL"))
+
+quant_mat <- quant_nmds %>%
+  group_by(metabolite) %>%
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc", values_fill = 0) %>%
+  column_to_rownames("id") %>%
+  data.matrix() 
+
+mdsout <- quant_mat %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data <- metadataframe %>% 
+  ungroup() %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  filter(str_detect(filename, "Smp")) %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
+  mutate(id = paste(date, treatment))
+
+# %>% 
+#   select(-c("replicate", "filename"))
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data) %>%
+  mutate(date_fct = factor(date)) %>% 
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=treatment, shape = date_fct), size=4) +
+  scale_color_manual(values = c("plum2", "lightcoral", "gold", "brown3", "orange", "mediumpurple3",
+                                "lightseagreen", "darkslategray2"),
+                     labels = c("Control - no nutrients added", "6N:1P, high dose added", "6N:1P, low dose added",
+                                "16N:1P, high dose added", "16N:1P, low dose added", "0N:1P:0Fe, high dose added",
+                                "0N:1P, low dose added", "0N:1P, high dose added"),
+                     name = "Treatment") +
+  scale_shape_discrete(name = "Date") + 
+  theme_bw() + 
+  ggtitle("Variation of Metabolite Concentration (nM) Across Treatments")
+```
+
+
+```{r}
+quant_nmds <- data_vis %>% 
+  # arrange(desc(nM)) %>% 
+  # group_by(metabolite, replicate) %>% 
+  # slice(1) %>% 
+  group_by(metabolite, treatment, date) %>%
+  summarise(avg_nmol = mean(nM)) %>%
+  ungroup() %>%
+  # complete(metabolite, date, treatment) %>%
+  # mutate(avg_nmol = replace_na(avg_nmol, 0)) %>%
+  mutate(id = paste(date, treatment)) %>% 
+  filter(!str_detect(treatment, "Tote"))
+
+quant_mat <- quant_nmds %>%
+  group_by(metabolite) %>%
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc", values_fill = 0) %>%
+  column_to_rownames("id") %>%
+  data.matrix() 
+
+mdsout <- quant_mat %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data <- metadataframe %>% 
+  ungroup() %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  filter(str_detect(filename, "Smp")) %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
+  mutate(id = paste(date, treatment))
+
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data) %>%
+  mutate(date_fct = factor(date)) %>% 
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=factor(treatment, levels = level_order), shape = date_fct), size=4) +
+  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("Control","0N:1P, low dose Fe","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  scale_shape_discrete(name = "Date") + 
+  theme_bw() + 
+  ggtitle("Variation of Metabolite Concentration (nM) Across Treatments")
+```
+
+# Data Exploration
+## Line Timeseries
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  mutate(sd = sd(nM)) %>% 
+  # slice(1) %>%
+  distinct(nmol_avg, .keep_all = TRUE) %>%
+  filter(str_detect(metabolite, "Guanine")) %>% 
+  filter(str_detect(treatment, "RH|RL|LH|LL")) %>% 
+  ggplot(aes(x = date, y = nmol_avg, color = factor(treatment, levels = level_order))) +
+  geom_line() +
+  geom_point() +
+  geom_errorbar(aes(ymin = nmol_avg - sd, ymax = nmol_avg + sd)) + 
+  scale_color_manual(values = c("gold", "lightcoral", "orange", "brown3"), 
+                     labels = c("Lower (than Redfield) ratio of N:P, low dose added", "Lower (than Redfield) ratio of N:P, high dose added", 
+                                "Redfield Ratio of N:P, low dose added", "Redfield Ratio of N:P, high dose added"), 
+                     name = "Treatment") + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  ggtitle("Timeseries of Guanine, Summarised by Triplicate") + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") 
+```
+## Amino Acids
+### Timeseries Boxplot
+```{r}
+aminos <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                              stringsAsFactors = FALSE, header = TRUE) %>% 
+  filter(Compound_Type == "Amino Acid") %>% 
+  select(metabolite = Compound_Name, emp_form = Empirical_Formula, metabolite_name = Compound_Name_Figure)
+
+peridice_aas <- data_vis %>% 
+  filter(metabolite %in% aminos$metabolite)
+
+peridice_aas %>% 
+  group_by(metabolite, treatment, date) %>% 
+  filter(str_detect(treatment, "C|RH|RL|LH|LL")) %>% 
+  ggplot(aes(x = factor(date), y = nM, color = factor(treatment, levels = level_order))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("Control", "6N:1P, low dose added",
+                                "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") + 
+  facet_wrap(~metabolite, scales = "free_y") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
+```
+
+### Heatmap
+```{r}
+ranked_aas <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  filter(metabolite %in% aminos$metabolite) 
+
+ranked_aas %>% 
+  ggplot() +
+  geom_raster(aes(x = metabolite, y = factor(id, levels = heat_level_order_treat), fill = norm_conc)) +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(low = "steelblue", mid = "grey90",
+                       high = "goldenrod1", midpoint = 16.5,
+                       breaks=c(0, 16.5, 33), labels=c(
+                         "Very little of a given compound",
+                         "Median compound abundance",
+                         "Compound maximum"
+                       )) +
+  new_scale_fill() 
+  # scale_fill_discrete(guide="none") +
+  # theme_void() +
+  # theme(legend.position = "top",
+  #       legend.key.width = unit(dev.size()[1] / 6, "inches"),
+  #       legend.text = element_text(size=8))
+```
+
+
+## Osmolytes
+### Boxplot Timeseries
+```{r}
+osmos <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                              stringsAsFactors = FALSE, header = TRUE) %>% 
+  filter(Compound_Type == "Osmolyte") %>% 
+  select(metabolite = Compound_Name, emp_form = Empirical_Formula, metabolite_name = Compound_Name_Figure)
+
+peridice_osmos <- data_vis %>% 
+  filter(metabolite %in% osmos$metabolite) %>% 
+  mutate(metab_type = "Osmolyte")
+
+peridice_osmos %>% 
+  group_by(metabolite, treatment, date) %>% 
+  # filter(!str_detect(treatment, "Tote")) %>% 
+  filter(str_detect(treatment, "C|RH|RL|LH|LL")) %>% 
+  # filter(str_detect(metabolite, "2-O-alpha-D-Glucosylglycerol|Ectoine|Ethanolamine|Trimethylamine N-oxide")) %>% 
+  ggplot(aes(x = factor(date), y = nM, color = factor(treatment, levels = level_order))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2", "gold", "lightcoral", "darkorange", "brown3"),
+                     labels = c("Control", "6N:1P, low dose added",
+                                "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") + 
+  facet_wrap(~metabolite, scales = "free_y") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
+```
+
+### Heatmap
+```{r}
+ranked_osmos <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  filter(metabolite %in% osmos$metabolite) 
+
+ranked_osmos %>% 
+  ggplot() +
+  geom_raster(aes(x = metabolite, y = factor(id, levels = heat_level_order_treat), fill = norm_conc)) +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(low = "steelblue", mid = "grey90",
+                       high = "goldenrod1", midpoint = 16.5,
+                       breaks=c(0, 16.5, 33), labels=c(
+                         "Very little of a given compound",
+                         "Median compound abundance",
+                         "Compound maximum"
+                       )) +
+  new_scale_fill()
+```
+
+## Nucleic Acids
+### Boxplot Timeseries
+```{r}
+nucleos <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                              stringsAsFactors = FALSE, header = TRUE) %>% 
+  filter(Compound_Type == "Nucleic Acid") %>% 
+  select(metabolite = Compound_Name, emp_form = Empirical_Formula, metabolite_name = Compound_Name_Figure)
+
+peridice_nucleos <- data_vis %>% 
+  filter(metabolite %in% nucleos$metabolite) %>% 
+  mutate(metab_type = "Nucleic Acid")
+
+peridice_nucleos %>% 
+  group_by(metabolite, treatment, date) %>% 
+  filter(str_detect(treatment, "C|RH|RL|LH|LL")) %>% 
+  ggplot(aes(x = factor(date), y = nM, color = factor(treatment, levels = level_order))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("Control", "6N:1P, low dose added",
+                                "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") + 
+  facet_wrap(~metabolite, scales = "free_y") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
+```
+
+### Heatmap
+```{r}
+ranked_nucleos <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  filter(metabolite %in% nucleos$metabolite) 
+
+ranked_nucleos %>% 
+  ggplot() +
+  geom_raster(aes(x = metabolite, y = factor(id, levels = heat_level_order_treat), fill = norm_conc)) +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(low = "steelblue", mid = "grey90",
+                       high = "goldenrod1", midpoint = 16.5,
+                       breaks=c(0, 16.5, 33), labels=c(
+                         "Very little of a given compound",
+                         "Median compound abundance",
+                         "Compound maximum"
+                       )) +
+  new_scale_fill() 
+```
+
+
+## Sulfur-Containing Metabolites
+### Boxplot Timeseries
+```{r}
+sulfur <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                              stringsAsFactors = FALSE, header = TRUE) %>% 
+  filter(Compound_Type == "Sulfur") %>% 
+  select(metabolite = Compound_Name, emp_form = Empirical_Formula, metabolite_name = Compound_Name_Figure)
+
+peridice_sulf <- data_vis %>% 
+  filter(metabolite %in% sulfur$metabolite) %>% 
+  filter(metabolite != "2-Hydroxy-4-(methylthio)butyric acid") %>% 
+  filter(metabolite != "L-Cysteinesulfinic acid") %>% 
+  filter(metabolite != "Sodium taurocholate") %>% 
+  filter(metabolite != "Amino hydroxypropanesulfonate") %>% 
+  filter(metabolite != "3-Aminopropanesulfonate") %>% 
+  filter(metabolite != "3-Sulfopyruvic acid") %>% 
+  filter(metabolite != "2-keto-4-methylthiobutyric acid") %>% 
+  mutate(metab_type = "Sulfur-Containing")
+
+peridice_sulf %>% 
+  group_by(metabolite, treatment, date) %>% 
+  # filter(!str_detect(treatment, "Tote")) %>% 
+  filter(str_detect(treatment, "C|RH|RL|LH|LL")) %>% 
+  ggplot(aes(x = factor(date), y = nM, color = factor(treatment, levels = level_order))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2", "gold", "lightcoral", "orange", "brown3"),
+                     labels = c("Control", "6N:1P, low dose added",
+                                "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") + 
+  facet_wrap(~metabolite, scales = "free_y") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
+  ggtitle("Concentrations of Sulfur-Containing Compounds")
+```
+
+### Heatmap 
+```{r}
+ranked_sulf <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  filter(metabolite %in% sulfur$metabolite) 
+
+ranked_sulf %>% 
+  ggplot() +
+  geom_raster(aes(x = metabolite, y = factor(id, levels = heat_level_order_treat), fill = norm_conc)) +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(low = "steelblue", mid = "grey90",
+                       high = "goldenrod1", midpoint = 16.5,
+                       breaks=c(0, 16.5, 33), labels=c(
+                         "Very little of a given compound",
+                         "Median compound abundance",
+                         "Compound maximum"
+                       )) +
+  new_scale_fill() 
+```
+
+```{r}
+
+```
+
