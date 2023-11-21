@@ -35,8 +35,8 @@ library(readxl)
 raw peak list, ingalls standards, filtration and pcpn metadata
 ```{r}
 # raw peak list
-peak_list <- read_csv('csvs/peridice_neg_peak_list.csv') %>% 
-  mutate(Protein = str_replace(Protein, "HILIC_Neg_Standards", "HILIC")) %>% 
+peak_list <- read_csv('csvs/pos_results_final.csv') %>% 
+  mutate(Protein = str_replace(Protein, "HILIC_Pos_Standards", "HILIC")) %>% 
   rename(column = Protein) %>% 
   rename(metabolite = Peptide) %>% 
   mutate(replicate_name = str_extract(Replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
@@ -336,7 +336,7 @@ umol in enviro = umol in vial * 400 uL * 10e^-6 / L filt * 1000 * dilution facto
 ingalls_stds_quant <- read_csv("https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv") %>% 
   select(metabolite_name = Compound_Name_Figure, metabolite = Compound_Name, conc_um = Concentration_uM, 
          empirical_formula = Empirical_Formula, z, mix = HILIC_Mix) %>% 
-  filter(z == -1) %>% 
+  filter(z == 1) %>% 
   na.omit()
 
 filt_data_quant <- filt_data %>% 
@@ -384,7 +384,7 @@ quant_data <- peak_list %>%
   filter(nmol_in_enviro > 0)
 
 # rename for files
-write.csv(quant_data, file = "csvs/neg_quant_data.csv", row.names = FALSE)
+write.csv(quant_data, file = "csvs/pos_quant_data.csv", row.names = FALSE)
 write.csv(metadataframe, file = "csvs/metadataframe.csv", row.names = FALSE)
 ```
 

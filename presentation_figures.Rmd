@@ -907,9 +907,6 @@ data_vis %>%
 
 
 ```{r}
-peridice_sulf_osmos <- peridice_sulf %>% 
-  mutate(metab_type = "Osmolyte")
-
 peridice_metab_groups <- peridice_aas %>% 
   mutate(metab_type = "Amino Acid") %>% 
   rbind(peridice_nucleos, peridice_sulf, peridice_osmos) 

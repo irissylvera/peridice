@@ -19,8 +19,8 @@ library(vegan)
 raw peak list, ingalls standards, filtration and pcpn data
 ```{r}
 # raw peak list
-peak_list_neg <- read_csv('csvs/peridice_neg_peak_list.csv') %>% 
-  mutate(Protein = str_replace(Protein, "HILIC_Pos_Standards", "HILIC")) %>% 
+peak_list_neg <- read_csv('csvs/neg_results_final.csv') %>% 
+  mutate(Protein = str_replace(Protein, "HILIC_Neg_Standards", "HILIC")) %>% 
   rename(column = Protein) %>% 
   rename(metabolite = Peptide) %>% 
   mutate(replicate_name = str_extract(Replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
@@ -40,7 +40,7 @@ peak_list_neg <- read_csv('csvs/peridice_neg_peak_list.csv') %>%
   select(-c(precursor_charge, frag_ion, peak_rank)) %>%
   mutate(rt = as.numeric(as.factor(rt)))
 
-peak_list_pos <- read_csv('csvs/peridice_pos_peak_list.csv') %>% 
+peak_list_pos <- read_csv('csvs/pos_results_final.csv') %>% 
   mutate(Protein = str_replace(Protein, "HILIC_Pos_Standards", "HILIC")) %>% 
   rename(column = Protein) %>% 
   rename(metabolite = Peptide) %>% 
@@ -471,7 +471,7 @@ quant_data %>%
   ungroup() %>% 
   mutate(metabolite = fct_inorder(metabolite)) %>%
   ggplot(aes(y = metabolite, x = log10(nM))) +
-  geom_boxplot() + 
+  geom_boxplot() +
   theme_bw()
   
   
