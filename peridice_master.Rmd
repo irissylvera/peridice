@@ -34,27 +34,25 @@ quant_data <- read_csv("csvs/quant_data.csv") %>%
   
 metadataframe <- read_csv("csvs/metadataframe.csv")
 pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
-  select(tank = Tank, treatment = Treatment2, date = Date, pn = `PN (uM)`, pc = `PC (uM)`, cn = Cnratio) %>% 
+  select(tank = Tank, treatment = Treatment2, date = Date, pn = `PN (uM)`, pc = `PC (uM)`, cn = Cnratio,added_N_uM = AddN) %>% 
   mutate(triplicate = str_extract(tank, "\\d"))
   
 ```
 
 ## ESS Project
 ```{r}
-# metab_pcpn <- data_vis %>%
-#   left_join(pcpn) %>%
-#   select(-c("tank", "replicate")) %>%
-#   mutate(nmol_per_pc = nM/pc) %>%
-#   select(metabolite, treatment, date, triplicate, nmol = nM, pc, pn, nmol_per_pc)
-# 
-# g1_metab_data <- read_csv("G1_Metab_Data.csv")
-# 
-# metab_pcpn_filt <- metab_pcpn %>%
-#   filter(metabolite %in% g1_metab_data$Complete_compound_name) %>%
-#   group_by(treatment, triplicate, date) %>%
-#   mutate()
-# 
-# write.csv(metab_pcpn_filt, "PERIDICE_metabolite_data.csv", row.names = FALSE)
+metab_pcpn <- data_vis %>%
+  left_join(pcpn) %>%
+  select(-c("tank")) %>%
+  mutate(nmol_per_pc = nM/pc) %>%
+  select(metabolite, treatment, date, triplicate,filename = replicate, nmol = nM, pc, pn, nmol_per_pc, added_N_uM)
+
+g1_metab_data <- read_csv("csvs/G1_Metab_Data.csv")
+
+  filter(metabolite %in% g1_metab_data$Complete_compound_name) %>%
+  group_by(treatment, triplicate, date)
+
+write.csv(metab_pcpn_filt, "PERIDICE_metabolite_data.csv", row.names = FALSE)
  
 ```
 
@@ -1122,14 +1120,12 @@ heatmap_data_good <- quant_nmds_heat_good %>%
   na.omit() %>% 
   column_to_rownames("id")
 
-plotheatmap_good <- heatmap_data_good %>%
+heatmap_data_good %>%
   data.matrix() %>% 
-  heatmaply(fontsize_row = 10, fontsize_col = 7) %>%
-  # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+  # heatmaply(fontsize_row = 10, fontsize_col = 7) 
+  heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
 
 # make clustered heatmap from scratch using pheatmap
-
-plotheatmap_good
 ```
 
 
@@ -1177,10 +1173,8 @@ peri_pca_long <- data_vis_qual %>%
   select(-c("treatment", "date", "triplicate", "quality", "replicate")) %>% 
   # column_to_rownames("replicate") %>% 
   data.matrix() %>%
-  `[<-`(is.na(.), 0) 
-# 
-# %>% 
-#   PCA(ncp = 6)
+  `[<-`(is.na(.), 0) %>%
+  PCA(ncp = 6)
 
 peri_pca <- data_vis_qual %>% 
   pivot_wider(names_from = metabolite, values_from = nM) %>% 
@@ -1188,10 +1182,46 @@ peri_pca <- data_vis_qual %>%
   # column_to_rownames("replicate") %>% 
   data.matrix() %>%
   `[<-`(is.na(.), 0) %>% 
-  prcomp() 
+  prcomp(center = TRUE, scale. = TRUE) 
 
-autoplot(peri_pca)
+biplot(peri_pca)
+
+data_vis_qual <- data_vis_qual %>% 
+  filter(!str_detect(metabolite, "Amino hydroxypropanesulfonate"))
 ```
+
+```{r}
+rate_ratio <- data_vis_qual %>% 
+  mutate(ratio = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
+  mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>% 
+  mutate(rate = str_replace(rate, "F", "H")) %>% 
+  mutate(replicate = str_remove(replicate, "230616_Smp_"))
+
+pca_mat <- rate_ratio %>% 
+  select(metabolite, replicate, nM) %>% 
+  group_by(metabolite) %>% 
+  mutate(nM = rank(nM)) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "nM") %>% 
+  column_to_rownames("replicate") %>% 
+  data.matrix() %>% 
+  `[<-`(is.na(.), 0)
+
+prcomp(pca_mat) %>%
+  pluck("x") %>%
+  as.data.frame() %>%
+  select(PC1:PC3) %>%
+  rownames_to_column("replicate") %>%
+  pivot_longer(starts_with("PC"), names_to = "PC", values_to = "PC_val") %>%
+  left_join(rate_ratio) %>%
+  # plotly::plot_ly(x=~PC1, y=~PC2, z=~PC3, color=~depth)
+  ggplot() +
+  # geom_point(aes(x=PC1, y=PC2, color=depth))
+  # geom_col(aes(x=filename, y=PC1, fill=depth))
+  geom_col(aes(x=replicate, y=PC_val, fill=ratio)) +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
+  facet_wrap(~PC, ncol=1)
+```
+
 
 
 # Foldchange
