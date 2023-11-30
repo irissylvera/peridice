@@ -1,0 +1,190 @@
+---
+title: "PCR"
+author: "Iris Kern"
+date: "2023-11-28"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(pls)
+library(stats)
+
+set.seed(20)
+```
+
+```{r}
+peridice <- read_csv("PERIDICE_metabolite_data.csv")
+gradients <- read_csv("csvs/G1_Metab_Data.csv")
+grad_meta <- read_csv("csvs/G1_MetaData.csv")
+
+grad_pcr <- gradients %>% 
+  select(-c("Compound_name_in_figures")) %>% 
+  pivot_longer(!Complete_compound_name, names_to = "Sample_ID", values_to = "nmol") %>% 
+  left_join(grad_meta) %>% 
+  rename(metabolite = Complete_compound_name, n_nmol = NO3_NO2, pc = PC_nM, pn = PN_nM)
+
+peridice_pcr <- peridice %>% 
+  select(nmol, filename, metabolite, n_nmol = added_N_uM, pc, pn)
+```
+# peridice model
+```{r}
+pcr_model <- pcr(n_nmol~nmol, data = peridice_pcr, scale = TRUE, validation = "CV")
+
+summary(pcr_model)
+validationplot(pcr_model) # mean squared error
+validationplot(pcr_model, val.type="MSEP") # cross validation mean squared error
+validationplot(pcr_model, val.type = "R2") # R squared
+
+predplot(pcr_model)
+coefplot(pcr_model)
+```
+
+```{r}
+pcr_model <- pcr(n_nmol~nmol, data = peridice_pcr, scale = TRUE, validation = "CV")
+
+test_peri <- predict(pcr_model, newdata = peridice_pcr)
+
+summary(test_peri)
+
+actual_values <- peridice_pcr$n_nmol
+
+results <- data.frame(actual = actual_values, predicted = test_peri) %>% 
+  rename(predicted1 = n_nmol.1.comps)
+
+
+summary(pcr_model)
+ggplot(results, aes(x = actual, y = predicted1)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
+  labs(title = "Actual vs Predicted",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_bw()
+```
+
+
+# gradients model
+```{r}
+grad_pcr_model <- pcr(n_nmol~nmol, data = grad_pcr, scale = TRUE, validation = "CV")
+
+summary(grad_pcr_model)
+validationplot(grad_pcr_model) # mean squared error
+validationplot(grad_pcr_model, val.type="MSEP") # cross validation mean squared error
+validationplot(grad_pcr_model, val.type = "R2") # R squared
+
+predplot(grad_pcr_model)
+coefplot(grad_pcr_model)
+```
+
+
+# inorganic nitrogen from nmol metabs
+## testing on gradients, model on peridice
+```{r}
+pcr_model <- pcr(n_nmol~nmol, data = peridice_pcr, scale = TRUE, validation = "CV")
+
+test_grad <- predict(pcr_model, newdata = grad_pcr)
+
+summary(test_grad)
+
+actual_values <- grad_pcr$n_nmol
+
+results <- data.frame(actual = actual_values, predicted = test_grad) %>% 
+  rename(predicted1 = n_nmol.1.comps)
+
+
+summary(pcr_model)
+ggplot(results, aes(x = actual, y = predicted1)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
+  labs(title = "Actual vs Predicted",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_bw()
+```
+
+gradients 1 principal component 
+
+# testing on peridice, model on gradients
+```{r}
+grad_pcr_model <- pcr(n_nmol~nmol, data = grad_pcr, scale = TRUE, validation = "CV")
+
+test_peri <- predict(grad_pcr_model, newdata = peridice_pcr)
+
+actual_values <- peridice_pcr$n_nmol
+
+results <- data.frame(actual = actual_values, predicted = test_peri) %>% 
+  rename(predicted1 = n_nmol.1.comps) 
+
+
+summary(grad_pcr_model)
+ggplot(results, aes(x = actual, y = predicted1)) +
+  geom_point() +
+  # geom_line(intercept = 0, slope = 1) + 
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
+  labs(title = "Actual vs Predicted",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_bw() + 
+  xlim(0, 5) + 
+  ylim(0, 5)
+```
+
+
+# nmol metabs from inorganic nitrogen
+## testing on gradients, model on peridice
+```{r}
+pcr_model <- pcr(nmol~n_nmol, data = peridice_pcr, scale = TRUE, validation = "CV")
+
+test_grad <- predict(pcr_model, newdata = grad_pcr)
+
+actual_values <- grad_pcr$nmol
+
+results <- data.frame(actual = actual_values, predicted = test_grad) %>% 
+  rename(predicted1 = predicted.nmol.1.comps) %>% 
+  rename(predicted2 = predicted.nmol.2.comps) %>% 
+  rename(predicted3 = predicted.nmol.3.comps)
+
+summary(pcr_model)
+ggplot(results, aes(x = actual, y = predicted1)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
+  labs(title = "Actual vs Predicted",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_bw() + 
+  xlim(0,5) + 
+  ylim(0,5)
+```
+
+gradients 1 principal component 
+
+# testing on peridice, model on gradients
+```{r}
+grad_pcr_model <- pcr(n_nmol~nmol+pc+pn, data = grad_pcr, scale = TRUE, validation = "CV")
+
+test_peri <- predict(grad_pcr_model, newdata = peridice_pcr)
+
+actual_values <- peridice_pcr$n_nmol
+
+results <- data.frame(actual = actual_values, predicted = test_peri) %>% 
+  rename(predicted1 = predicted.n_nmol.1.comps) %>% 
+  rename(predicted2 = predicted.n_nmol.2.comps) %>% 
+  rename(predicted3 = predicted.n_nmol.3.comps) %>% 
+  # group_by(predicted1, predicted2, predicted3, actual) %>% 
+  # mutate(predicted = mean(colMeans(df[c('predicted1', 'predicted2', 'predicted3')], na.rm = TRUE))) %>% 
+  mutate(predicted = mean(across(c(predicted1,
+         predicted2, predicted3), mean, na.rm = TRUE)))
+
+
+summary(grad_pcr_model)
+ggplot(results, aes(x = actual, y = predicted3)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
+  labs(title = "Actual vs Predicted",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_bw()
+```
