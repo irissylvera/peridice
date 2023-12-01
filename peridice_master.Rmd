@@ -1233,36 +1233,49 @@ peri_pca_analysis <- prcomp(pca_mat) %>%
   mutate(PC2 = as.numeric(PC2))
  
 peri_pca_analysis %>% 
-  filter(str_detect(replicate, "14July|21July")) %>% 
+  # filter(str_detect(replicate, "14July|21July")) %>% 
   filter(str_detect(rate, "H")) %>% 
   ggplot() + 
   geom_point(aes(x = PC1, y = PC2, color = ratio)) + 
   theme_bw() + 
-  ggtitle("Rate = H")
+  ggtitle("Rate = H") + 
+  facet_wrap(~date, scales = "free")
 
 peri_pca_analysis %>% 
-  filter(str_detect(replicate, "14July|21July")) %>% 
-  filter(str_detect(ratio, "R")) %>% 
-  ggplot() + 
-  geom_point(aes(x = PC1, y = PC2, color = rate)) + 
-  theme_bw() + 
-  ggtitle("Ratio = R")
-
-peri_pca_analysis %>% 
-  filter(str_detect(replicate, "14July|21July")) %>% 
-  filter(str_detect(ratio, "L")) %>% 
-  ggplot() + 
-  geom_point(aes(x = PC1, y = PC2, color = rate)) + 
-  theme_bw() + 
-  ggtitle("Ratio = L")
-
-peri_pca_analysis %>% 
-  filter(str_detect(replicate, "14July|21July")) %>% 
+  # filter(str_detect(replicate, "14July|21July")) %>% 
   filter(str_detect(rate, "L")) %>% 
   ggplot() + 
   geom_point(aes(x = PC1, y = PC2, color = ratio)) + 
   theme_bw() + 
-  ggtitle("Rate = L")
+  ggtitle("Rate = L") + 
+  facet_wrap(~date, scales = "free")
+
+peri_pca_analysis %>% 
+  # filter(str_detect(replicate, "14July|21July")) %>% 
+  filter(str_detect(ratio, "R")) %>% 
+  ggplot() + 
+  geom_point(aes(x = PC1, y = PC2, color = rate)) + 
+  theme_bw() + 
+  ggtitle("Ratio = R") + 
+  facet_wrap(~date, scales = "free")
+
+peri_pca_analysis %>% 
+  # filter(str_detect(replicate, "14July|21July")) %>% 
+  filter(str_detect(ratio, "L")) %>% 
+  ggplot() + 
+  geom_point(aes(x = PC1, y = PC2, color = rate)) + 
+  theme_bw() + 
+  ggtitle("Ratio = L") + 
+  facet_wrap(~date, scales = "free")
+
+peri_pca_analysis %>% 
+  # filter(str_detect(replicate, "14July|21July")) %>% 
+  filter(str_detect(ratio, "Z")) %>% 
+  ggplot() + 
+  geom_point(aes(x = PC1, y = PC2, color = rate)) + 
+  theme_bw() + 
+  ggtitle("Ratio = Z") + 
+  facet_wrap(~date, scales = "free")
 
 peri_pca_analysis %>% 
   # filter(str_detect(replicate, "14July|21July")) %>% 
@@ -1273,6 +1286,18 @@ peri_pca_analysis %>%
   theme_bw() + 
   ggtitle("Ratio = R")
 ``` 
+# investigating those metabolites driving PCA differences
+```{r}
+define_rate <- peri_pca_analysis %>% 
+  filter(str_detect(replicate, "21July")) %>% 
+  filter(str_detect(rate, "H")) %>% 
+  filter(PC1 <50 & PC2<1) %>% 
+  left_join(metab_groups)
+
+ggplot(define_rate, aes(x = "metab_type", fill = "metab_type")) +
+  geom_bar()
+```
+
 
 Phosphocholine
 Glycerophosphocholine
@@ -1355,10 +1380,10 @@ fc_function <- data_vis_cluster %>%
 
 plotly_func <- fc_function %>% 
   na.omit() %>% 
-  filter(cluster == 6) %>% 
-  group_by(date, treatment, metab_type) %>% 
+  filter(cluster == 3) %>% 
+  group_by(date, treatment, metabolite) %>% 
   mutate(avg_fc = mean(fold_change)) %>% 
-  ggplot(aes(x = date, y = log2(avg_fc), color = metab_type)) + 
+  ggplot(aes(x = date, y = log2(avg_fc), color = metabolite)) + 
   geom_point() +
   geom_line() + 
   theme_bw() + 
@@ -1370,6 +1395,27 @@ plotly_func <- fc_function %>%
   ## facet_grid(~rate~ratio)
   
 ggplotly(plotly_func)
+```
+
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  # mutate(nmol_avg = median(nM)) %>% 
+  filter(str_detect(metabolite, "Glycerophosphocholine|Deoxyadenosine|Deoxyguanosine")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  ggplot(aes(x = date, y = nM, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  scale_y_log10() + 
+  facet_wrap(~factor(metabolite, levels = c("Deoxyguanosine", "Deoxyadenosine", "Glycerophosphocholine")), ncol = 1, scales = "free_y") +
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)")
 ```
 
 
