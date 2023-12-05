@@ -558,7 +558,7 @@ pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>%
 
 pcpn %>% 
   mutate(cn_rank=(cn-min(cn))/(max(cn)-min(cn))) %>%
-  filter(str_detect(treatment, "RH|RL|LH|LL|C")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
   group_by(triplicate, treatment, date) %>%  
   # mutate(avg_cn = mean(cn)) %>% 
   # filter(triplicate == 2) %>% 
@@ -991,8 +991,6 @@ data_vis_taxon <- data_vis %>%
 
 data_vis_taxon %>%  
   na.omit() %>% 
-  filter(metabolite %in% data_vis_taxon$metabolite) %>% 
-  # mutate(nmol_rank=(nM-min(nM))/(max(nM)-min(nM))) %>%
   group_by(treatment, date, metab_type) %>% 
   mutate(avg_nmol = mean(nM)) %>% 
   # distinct(avg_nmol, .keep_all = TRUE) %>% 
