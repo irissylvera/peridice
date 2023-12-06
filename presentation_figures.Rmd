@@ -78,7 +78,8 @@ heatmap_data <- quant_nmds_heat %>%
   # filter(avg_nmol >= 0.01) %>% 
   complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
   group_by(metabolite) %>% 
-  mutate(norm_conc = rank(avg_nmol)) %>%
+  # mutate(norm_conc = rank(avg_nmol)) %>%
+  mutate(norm_conc = (avg_nmol - min(avg_nmol)) / (max(avg_nmol) - min(avg_nmol))) %>%
   select(metabolite, norm_conc, id) %>%
   pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
   mutate(id=factor(id, levels=c(heat_level_order_treat))) %>%

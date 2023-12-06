@@ -1203,13 +1203,13 @@ quant_nmds_heat_good <- data_vis_qual %>%
   group_by(metabolite, treatment, date) %>%
   summarise(avg_nmol = mean(nM)) %>% 
   ungroup() %>%
-  mutate(id = paste(date, treatment)) 
-# %>% 
-#   filter(str_detect(treatment, "RH|RL|LH|LL"))
+  mutate(id = paste(date, treatment)) %>%
+  filter(!str_detect(treatment, "Tote")) %>% 
+  filter(str_detect(metabolite, "Guanine|Arsenobetaine|Hydroxyisoleucine|Betonicine|Trigonelline|Gonyol|beta-Alanine|Glycine betaine|Carnitine|Sarcosine|L-Cystathionine|Ectoine|Proline betaine|L-Proline|Cytosine|Isethionic acid"))
 
 heatmap_data_good <- quant_nmds_heat_good %>% 
   # group_by(metabolite) %>%
-  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(str_detect(treatment, "T0|27July")) %>% 
   # filter(avg_nmol >= 0.01) %>% 
   complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
   group_by(metabolite) %>% 
@@ -1221,12 +1221,12 @@ heatmap_data_good <- quant_nmds_heat_good %>%
   # mutate(id=factor(id, levels=c(heat_level_order_treat))) %>%
   arrange(id) %>%
   na.omit() %>% 
-  column_to_rownames("id")
+  column_to_rownames("id") 
 
 heatmap_data_good %>%
   data.matrix() %>% 
-  # heatmaply(fontsize_row = 10, fontsize_col = 7) 
-  heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+  heatmaply(fontsize_row = 10, fontsize_col = 7) 
+  # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
 
 # make clustered heatmap from scratch using pheatmap
 ```
@@ -1686,5 +1686,51 @@ data_vis %>%
   xlab("Date") + 
   ylab("nM (nmol per L)")
 ```
+# Focus on deoxyguanosine, deoxyadenosine 
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  # mutate(nmol_avg = median(nM)) %>% 
+  filter(str_detect(metabolite, "Deoxyadenosine|Deoxyguanosine")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  ggplot(aes(x = date, y = nM, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  scale_y_log10() + 
+  facet_wrap(~factor(metabolite, levels = c("Deoxyguanosine", "Deoxyadenosine")), ncol = 1, scales = "free_y") +
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)")
+```
 
 
+# Focus on glycerophosphocholine
+
+```{r}
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  # mutate(nmol_avg = median(nM)) %>% 
+  filter(str_detect(metabolite, "Glycerophosphocholine")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  ggplot(aes(x = date, y = nM, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  scale_y_log10() + 
+  facet_wrap(~factor(metabolite, levels = c("Glycerophosphocholine")), ncol = 1, scales = "free_y") +
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)")
+```
+
+# Sulfur metabolites dissolved to particulate. 
+Sulfur metabolites peak at 3 week mark, especially in 

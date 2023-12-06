@@ -38,6 +38,40 @@ peridice_pcr <- peridice %>%
   # select(nmol, n_nmol) %>% 
   group_by(metabolite, filename) %>%
   filter(str_detect(metabolite, "Guanine|Arsenobetaine"))
+
+messy <- peri_pca_analysis %>% 
+  left_join(peridice_pcr)
+
+
+messy %>%  
+  mutate(rate = str_replace(rate, "F", "H")) %>% 
+  mutate(rate = str_replace(rate, "H", "High Dose of Nutrients")) %>% 
+  mutate(rate = str_replace(rate, "L", "Low Dose of Nutrients")) %>% 
+  ggplot(aes(x = PC1, y = PC2, group = treatment, color = n_nmol)) + 
+  geom_point() + 
+  # geom_polygon(aes(fill = n_nmol), alpha = 0.5) + 
+  scale_color_viridis() + 
+  scale_fill_viridis() + 
+  theme_bw() + 
+  facet_grid2(~factor(date), scales = "free", independent = "y") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size = 7), axis.text.y = element_text(size = 7))
+
+peri_pca_analysis %>% 
+  mutate(ratio = str_replace(ratio, "R", "1.5")) %>% 
+  mutate(ratio = str_replace(ratio, "L", "0.05")) %>%
+  mutate(ratio = str_replace(ratio, "Z", "0.0")) %>%
+  # filter(str_detect(replicate, "21July")) %>% 
+  filter(str_detect(rate, "H")) %>% 
+  mutate(rate = str_replace(rate, "H", "High Dose of Nutrients")) %>% 
+  mutate(rate = str_replace(rate, "L", "Low Dose of Nutrients")) %>% 
+  ggplot(aes(x = PC1, y = PC2, group = factor(ratio, levels = c("1.5", "0.05", "0.0")))) + 
+  # geom_point(aes(fill = ratio, color = ratio), size = 0.5) + 
+  geom_point(aes(color = ratio), size = 0.75) + 
+  geom_polygon(aes(fill = ratio), alpha = 0.5) + 
+  # scale_color_discrete(name = "Ratio") + 
+  theme_bw() + 
+  facet_grid2(~date, scales = "free", independent = "y")  + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size = 10), axis.text.y = element_text(size = 10))
 ```
 
 # Peridice test and train
