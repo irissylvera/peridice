@@ -39,24 +39,6 @@ pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>%
   
 ```
 
-## ESS Project
-```{r}
-# metab_pcpn <- data_vis %>%
-#   left_join(pcpn) %>%
-#   select(-c("tank")) %>%
-#   mutate(nmol_per_pc = nM/pc) %>%
-#   select(metabolite, treatment, date, triplicate,filename = replicate, nmol = nM, pc, pn, nmol_per_pc, added_N_uM)
-# 
-# g1_metab_data <- read_csv("csvs/G1_Metab_Data.csv")
-# 
-# metab_pcpn_filt <- metab_pcpn %>%
-#   filter(metabolite %in% g1_metab_data$Complete_compound_name) %>%
-#   group_by(treatment, triplicate, date)
-# 
-# write.csv(metab_pcpn_filt, "PERIDICE_metabolite_data.csv", row.names = FALSE)
- 
-```
-
 
 ## Wrangle and setup
 ```{r}
@@ -126,6 +108,26 @@ pcpn %>%
   xlab("Date")
 ```
 
+
+
+## ESS Project
+```{r}
+metab_pcpn <- data_vis %>%
+  left_join(pcpn) %>%
+  select(-c("tank")) %>%
+  mutate(nmol_per_pc = nM/pc) %>%
+  select(metabolite, treatment, date, triplicate,filename = replicate, nmol = nM, pc, pn, nmol_per_pc, added_N_uM)
+
+g1_metab_data <- read_csv("csvs/G1_Metab_Data.csv")
+
+metab_pcpn_filt <- metab_pcpn %>%
+  filter(metabolite %in% g1_metab_data$Complete_compound_name) %>%
+  group_by(treatment, triplicate, date)
+
+write.csv(metab_pcpn_filt, "PERIDICE_metabolite_data.csv", row.names = FALSE)
+ 
+```
+
 # Statistical Distributions
 ## Heatmap
 ```{r}
@@ -144,6 +146,7 @@ heatmap_data <- quant_nmds_heat %>%
   complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
   group_by(metabolite) %>% 
   mutate(norm_conc = rank(avg_nmol)) %>%
+  # mutate(norm_conc=(avg_nmol-min(avg_nmol))/(max(avg_nmol)-min(avg_nmol))) %>% 
   # mutate(norm_conc=scale(avg_nmol)[,1]) %>%
   select(metabolite, norm_conc, id) %>%
   pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
@@ -155,8 +158,8 @@ heatmap_data <- quant_nmds_heat %>%
 
 plotheatmap <- heatmap_data %>%
   data.matrix() %>% 
-  # heatmaply(fontsize_row = 10, fontsize_col = 7) %>%
-  heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+  heatmaply(fontsize_row = 7, fontsize_col = 7)
+  # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
 
 # make clustered heatmap from scratch using pheatmap
 
@@ -1204,8 +1207,10 @@ quant_nmds_heat_good <- data_vis_qual %>%
   summarise(avg_nmol = mean(nM)) %>% 
   ungroup() %>%
   mutate(id = paste(date, treatment)) %>%
-  filter(!str_detect(treatment, "Tote")) %>% 
-  filter(str_detect(metabolite, "Guanine|Arsenobetaine|Hydroxyisoleucine|Betonicine|Trigonelline|Gonyol|beta-Alanine|Glycine betaine|Carnitine|Sarcosine|L-Cystathionine|Ectoine|Proline betaine|L-Proline|Cytosine|Isethionic acid"))
+  filter(!str_detect(treatment, "Tote"))
+
+# %>% 
+#   filter(str_detect(metabolite, "Guanine|Arsenobetaine|Hydroxyisoleucine|Betonicine|Trigonelline|Gonyol|beta-Alanine|Glycine betaine|Carnitine|Sarcosine|L-Cystathionine|Ectoine|Proline betaine|L-Proline|Cytosine|Isethionic acid"))
 
 heatmap_data_good <- quant_nmds_heat_good %>% 
   # group_by(metabolite) %>%
@@ -1213,8 +1218,8 @@ heatmap_data_good <- quant_nmds_heat_good %>%
   # filter(avg_nmol >= 0.01) %>% 
   complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
   group_by(metabolite) %>% 
-  # mutate(norm_conc = rank(avg_nmol)) %>%
-  mutate(norm_conc = (avg_nmol - min(avg_nmol)) / (max(avg_nmol) - min(avg_nmol))) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  # mutate(norm_conc = (avg_nmol - min(avg_nmol)) / (max(avg_nmol) - min(avg_nmol))) %>% 
   filter(norm_conc != "NaN") %>%  
   select(metabolite, norm_conc, id) %>%
   pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
@@ -1225,8 +1230,9 @@ heatmap_data_good <- quant_nmds_heat_good %>%
 
 heatmap_data_good %>%
   data.matrix() %>% 
-  heatmaply(fontsize_row = 10, fontsize_col = 7) 
+  heatmaply(fontsize_row = 7, fontsize_col = 5) 
   # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+
 
 # make clustered heatmap from scratch using pheatmap
 ```
@@ -1280,6 +1286,7 @@ peri_pca_long <- data_vis_qual %>%
   PCA(ncp = 6)
 
 peri_pca <- data_vis_qual %>% 
+  #filter(!str_detect(replicate, "Tote")) %>% 
   pivot_wider(names_from = metabolite, values_from = nM) %>% 
   select(-c("treatment", "date", "triplicate", "quality", "replicate")) %>% 
   # column_to_rownames("replicate") %>% 
@@ -1287,10 +1294,10 @@ peri_pca <- data_vis_qual %>%
   `[<-`(is.na(.), 0) %>% 
   prcomp(center = TRUE, scale. = TRUE) 
 
-biplot(peri_pca)
+plot(peri_pca)
 
-data_vis_qual <- data_vis_qual %>% 
-  filter(!str_detect(metabolite, "Amino hydroxypropanesulfonate"))
+# data_vis_qual <- data_vis_qual %>% 
+#   filter(!str_detect(metabolite, "Amino hydroxypropanesulfonate"))
 ```
 
 ```{r}
@@ -1606,10 +1613,21 @@ data_vis_cluster %>%
   filter(metabolite == "Glycerophosphocholine") %>% 
   group_by(metabolite, date, treatment) %>%
   mutate(date_fct = factor(date)) %>% 
-  mutate(avg_nmol = mean(nM)) %>% 
-  ggplot(aes(x = date, y = avg_nmol, color = metabolite)) + 
-  geom_line() + 
-  geom_point() + 
+  # mutate(avg_nmol = mean(nM)) %>% 
+  ggplot(aes(x = date_fct, y = nM, color = metabolite)) + 
+  geom_boxplot() + 
+  theme_bw() + 
+  facet_wrap(~treatment)
+
+data_vis_cluster %>% 
+  # filter(cluster == 1) %>% 
+  # filter(metabolite %in% sulfur$metabolite) %>% 
+  filter(metabolite == "Glycerophosphocholine") %>% 
+  group_by(metabolite, date, treatment) %>%
+  mutate(date_fct = factor(date)) %>% 
+  # mutate(avg_nmol = mean(nM)) %>% 
+  ggplot(aes(x = date_fct, y = nM, color = metabolite)) + 
+  geom_boxplot() + 
   theme_bw() + 
   facet_wrap(~treatment)
 ```
@@ -1617,23 +1635,60 @@ data_vis_cluster %>%
 ```{r}
 metab_pcpn %>% 
   group_by(metabolite, treatment, date) %>% 
-  filter(metabolite == "Phosphocholine") %>%  
-  filter(!str_detect(treatment, "Tote")) %>% 
-  ggplot(aes(x = factor(date), y = nmol, color = factor(treatment, levels = level_order))) +
+  filter(metabolite == "Glycerophosphocholine") %>%  
+  filter(str_detect(filename, "Tote|27July")) %>% 
+  ggplot(aes(x = factor(date), y = nmol_per_pc)) +
   geom_boxplot() + 
-  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
-                     labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
-                                "6N:1P, low dose added", "6N:1P, high dose added",
-                                "16N:1P, low dose added", "16N:1P, high dose added"),
-                     name = "Treatment") +
+  # scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+  #                    labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+  #                               "6N:1P, low dose added", "6N:1P, high dose added",
+  #                               "16N:1P, low dose added", "16N:1P, high dose added"),
+  #                    name = "Treatment") +
   guides(fill=guide_legend(ncol=2)) + 
   theme_bw() + 
   xlab("Date") + 
   ylab("nM (nmol per L)") + 
-  facet_wrap(~metabolite, scales = "free_y") + 
-  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
-  scale_y_log10()
+  facet_wrap(~treatment,) + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
+
+metab_pcpn %>% 
+  group_by(metabolite, treatment, date) %>% 
+  filter(metabolite == "Glycerophosphocholine") %>%  
+  filter(str_detect(filename, "Tote|14July|27July")) %>% 
+  filter(str_detect(treatment, "RH|RL|LH|LL|Tote")) %>% 
+  ggplot(aes(x = factor(date), y = nmol, color = treatment)) +
+  geom_boxplot() + 
+  # scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+  #                    labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+  #                               "6N:1P, low dose added", "6N:1P, high dose added",
+  #                               "16N:1P, low dose added", "16N:1P, high dose added"),
+  #                    name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) 
+
+metab_pcpn %>% 
+  group_by(metabolite, treatment, date) %>% 
+  filter(metabolite == "Glycerophosphocholine") %>%  
+  filter(str_detect(filename, "Tote|14July|27July")) %>% 
+  filter(str_detect(treatment, "RH|RL|LH|LL|Tote")) %>% 
+  ggplot(aes(x = factor(date), y = nmol_per_pc, color = treatment)) +
+  geom_boxplot() + 
+  # scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+  #                    labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+  #                               "6N:1P, low dose added", "6N:1P, high dose added",
+  #                               "16N:1P, low dose added", "16N:1P, high dose added"),
+  #                    name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
 ```
+
+Why are some metabolites ratio+rate dependent, others are only rate dependent?
 
 ```{r}
 metab_groups <- read.csv(
@@ -1712,12 +1767,12 @@ data_vis %>%
 # Focus on glycerophosphocholine
 
 ```{r}
-data_vis %>% 
+metab_pcpn %>% 
   group_by(metabolite, treatment, date) %>% 
   # mutate(nmol_avg = median(nM)) %>% 
-  filter(str_detect(metabolite, "Glycerophosphocholine")) %>% 
+  filter(str_detect(metabolite, "Glycerophosphocholine|Phosphocholine")) %>% 
   filter(!str_detect(treatment, "Tote")) %>% 
-  ggplot(aes(x = date, y = nM, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  ggplot(aes(x = date, y = nmol_per_pc, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
   geom_boxplot() + 
   scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
                      labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
@@ -1726,7 +1781,7 @@ data_vis %>%
                      name = "Treatment") +
   guides(fill=guide_legend(ncol=2)) + 
   scale_y_log10() + 
-  facet_wrap(~factor(metabolite, levels = c("Glycerophosphocholine")), ncol = 1, scales = "free_y") +
+  facet_wrap(~factor(metabolite, levels = c("Glycerophosphocholine", "Phosphocholine")), ncol = 1, scales = "free_y") +
   theme_bw() + 
   xlab("Date") + 
   ylab("nM (nmol per L)")

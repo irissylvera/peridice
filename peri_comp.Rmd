@@ -1,0 +1,260 @@
+---
+title: "peridice_comp"
+author: "Iris Kern"
+date: "2023-12-14"
+output: html_document
+---
+
+# Setup
+## Libraries
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(plotly)
+library(vegan)
+library(heatmaply)
+library(ggnewscale)
+library(readr)
+library(readxl)
+# library(corrr)
+# library(ggcorrplot)
+library(FactoMineR)
+library(stats)
+library(ggfortify)
+library(ggh4x)
+
+set.seed(20)
+```
+
+data setup
+general exploration (heatmaps, nmds, split by metabolite function, pca, metabolite conc abs and rel - is this norm to pc?) 
+narrow in on what comes out of that, stories
+fun things (machine learning! maybe rfr? predicting pc from metab conc, dissolved related to par?)
+
+Experiment intro
+
+# Data Setup
+```{r}
+quant_data <- read_csv("csvs/quant_data.csv") %>% 
+  filter(nM > 0) %>% 
+  filter(nM < 100) 
+  
+metadataframe <- read_csv("csvs/metadataframe.csv")
+pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
+  select(tank = Tank, treatment = Treatment2, date = Date, pn = `PN (uM)`, pc = `PC (uM)`, cn = Cnratio,added_N_uM = AddN) %>% 
+  mutate(triplicate = str_extract(tank, "\\d"))
+
+data_vis <- quant_data %>%  
+  mutate(treatment = str_extract(replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_extract(replicate, "27June|30June|14July|21July|27July")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  select(metabolite, treatment, date, nM, replicate) %>% 
+  filter(metabolite != "Sodium 2-mercaptoethanesulfonate") %>% 
+  filter(metabolite != "Fumaric acid") %>% 
+  na.omit() %>% 
+  mutate(triplicate = str_extract(replicate, "\\d$")) 
+
+level_order <- c("T0", "C", "ZF", "ZL", "ZH", "LL", "LH", "RL", "RH")
+
+heat_level_order_treat <- c("2022-06-27 Tote", "2022-06-30 C",  "2022-07-14 C",  "2022-07-21 C",  "2022-07-27 C",  
+                            "2022-06-30 ZF", "2022-07-14 ZF", "2022-07-21 ZF", "2022-07-27 ZF",
+                            "2022-06-30 ZL", "2022-07-14 ZL", "2022-07-21 ZL", "2022-07-27 ZL", 
+                            "2022-06-30 ZH", "2022-07-14 ZH", "2022-07-21 ZH", "2022-07-27 ZH",
+                            "2022-06-30 LL", "2022-07-14  LL", "2022-07-21 LL", "2022-07-27 LL",
+                            "2022-06-30 LH", "2022-07-14 LH", "2022-07-21 LH", "2022-07-27 LH", 
+                            "2022-06-30 RL", "2022-07-14 RL", "2022-07-21 RL", "2022-07-27 RL",
+                            "2022-06-30 RH", "2022-07-14 RH", "2022-07-21 RH", "2022-07-27 RH")
+
+heat_level_order_date <- c("2022-06-27 Tote", "2022-06-30 C","2022-06-30 ZF", "2022-06-30 ZL", 
+                           "2022-06-30 ZH", "2022-06-30 LL","2022-06-30 LH", "2022-06-30 RL", "2022-06-30 RH",
+                           "2022-07-14 C", "2022-07-14 ZF", "2022-07-14 ZL", "2022-07-14 ZH", "2022-07-14 LL", 
+                           "2022-07-14 LH", "2022-07-14 RL", "2022-07-14 RH", 
+                           "2022-07-21 C", "2022-07-21 ZF", "2022-07-21 ZL", "2022-07-21 ZH", 
+                           "2022-07-21 LL", "2022-07-21 LH", "2022-07-21 RL", "2022-07-21 RH", 
+                           "2022-07-27 C", "2022-07-27 ZF", "2022-07-27 ZL",  
+                           "2022-07-27 ZH", "2022-07-27 LL", "2022-07-27 LH", "2022-07-27 RL",  "2022-07-27 RH")
+
+data_vis_norm <- data_vis %>% 
+  left_join(pcpn) %>% 
+  mutate(nmol_per_pc = nM/pc)
+  select(replicate, metabolite, treatment, date, nM, triplicate, nmol_per_pc)
+```
+
+## Quality Control
+```{r}
+metab_qual <- read_csv("csvs/peak_quality.csv") %>% 
+  select(metabolite = Metabolite, quality = Quality)
+
+data_vis_qual <- data_vis %>% 
+  left_join(metab_qual) %>% 
+  filter(quality == "Good")
+```
+
+## Metadata
+```{r}
+pcpn %>% 
+  mutate(cn_rank=(cn-min(cn))/(max(cn)-min(cn))) %>%
+  filter(str_detect(treatment, "RH|RL|LH|LL|C")) %>% 
+  group_by(triplicate, treatment, date) %>%  
+  # mutate(avg_cn = mean(cn)) %>% 
+  # filter(triplicate == 2) %>% 
+  ggplot(aes(x = date, y = cn, group = interaction(treatment, triplicate), color = treatment)) +
+  geom_line() + 
+  geom_point() + 
+  # scale_color_manual(values = c("plum2", "gold", "lightcoral", "darkorange", "brown3"), name = "Treatment") +
+  facet_wrap(~treatment) + 
+  theme_bw() +  
+  ylab("C to N Ratio") + 
+  xlab("Date")
+
+pcpn %>% 
+  mutate(pc_rank=(pc-min(pc))/(max(pc)-min(pc))) %>%
+  filter(!str_detect(treatment, "Tote")) %>% 
+  group_by(triplicate, treatment, date) %>%  
+  # mutate(avg_cn = mean(cn)) %>% 
+  # filter(triplicate == 2) %>% 
+  ggplot(aes(x = date, y = pc, group = interaction(treatment, triplicate), color = treatment)) +
+  geom_line() + 
+  geom_point() + 
+  # scale_color_manual(values = c("plum2", "gold", "lightcoral", "darkorange", "brown3"), name = "Treatment") +
+  facet_grid(~treatment) + 
+  theme_bw() +  
+  ylab("Particulate Carbon") + 
+  xlab("Date")
+```
+
+ 
+
+## Stats
+### NMDS
+```{r}
+
+```
+
+
+### PCA
+generate pca and check variations explained by each principal component
+```{r}
+rate_ratio <- data_vis_qual %>% 
+  mutate(ratio = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
+  mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>% 
+  # mutate(rate = str_replace(rate, "F", "H")) %>% 
+  mutate(replicate = str_remove(replicate, "230616_Smp_"))
+
+pca_mat <- rate_ratio %>% 
+  select(metabolite, replicate, nM) %>% 
+  group_by(metabolite) %>% 
+  mutate(nM = rank(nM)) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "nM") %>% 
+  column_to_rownames("replicate") %>% 
+  data.matrix() %>% 
+  `[<-`(is.na(.), 0)
+
+prcomp(pca_mat) %>%
+  pluck("x") %>%
+  as.data.frame() %>%
+  select(PC1:PC3) %>%
+  rownames_to_column("replicate") %>%
+  pivot_longer(starts_with("PC"), names_to = "PC", values_to = "PC_val") %>%
+  left_join(rate_ratio) %>%
+  # plotly::plot_ly(x=~PC1, y=~PC2, z=~PC3, color=~depth)
+  ggplot() +
+  # geom_point(aes(x=PC1, y=PC2, color=depth))
+  # geom_col(aes(x=filename, y=PC1, fill=depth))
+  geom_col(aes(x=replicate, y=PC_val, fill=ratio)) +
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
+  facet_wrap(~PC, ncol=1)
+
+peri_pca_analysis <- prcomp(pca_mat) %>%
+  pluck("x") %>%
+  as.data.frame() %>%
+  select(PC1:PC2) %>%
+  rownames_to_column("replicate") %>%
+  # pivot_longer(starts_with("PC"), names_to = "PC", values_to = "PC_val") %>%
+  left_join(rate_ratio, by = "replicate")  %>% 
+  mutate(PC1 = as.numeric(PC1)) %>% 
+  mutate(PC2 = as.numeric(PC2))
+```
+
+plot
+```{r}
+peri_pca_analysis %>% 
+  mutate(ratio = str_replace(ratio, "R", "16N:1P")) %>% 
+  mutate(ratio = str_replace(ratio, "L", "6N:1P")) %>%
+  mutate(ratio = str_replace(ratio, "Z", "0N:1P")) %>%
+  # filter(str_detect(replicate, "21July")) %>% 
+  filter(str_detect(rate, "H|L")) %>% 
+  mutate(rate = str_replace(rate, "H", "High Dose of Nutrients")) %>% 
+  mutate(rate = str_replace(rate, "L", "Low Dose of Nutrients")) %>% 
+  ggplot(aes(x = PC1, y = PC2, group = factor(ratio, levels = c("0N:1P", "6N:1P", "16N:1P")))) + 
+  # geom_point(aes(fill = ratio, color = ratio), size = 0.5) + 
+  geom_point(aes(color = ratio), size = 0.75) + 
+  geom_polygon(aes(fill = ratio), alpha = 0.5) + 
+  #scale_color_discrete(name = "Ratio") + 
+  theme_bw() + 
+  facet_grid2(~rate~date, scales = "free", independent = "y")  + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size = 10), axis.text.y = element_text(size = 10))
+
+peri_pca_analysis %>% 
+  mutate(rate = str_replace(rate, "H", "High Dose of Nutrients")) %>% 
+  mutate(rate = str_replace(rate, "L", "Low Dose of Nutrients")) %>% 
+  mutate(rate = str_replace(rate, "F", "High Dose of Nutrients-no Fe")) %>% 
+  # filter(str_detect(replicate, "21July")) %>% 
+  filter(str_detect(ratio, "R|L|Z")) %>% 
+  # filter(str_detect(rate, "H|L")) %>% 
+  mutate(ratio = str_replace(ratio, "R", "16N:1P")) %>% 
+  mutate(ratio = str_replace(ratio, "L", "6N:1P")) %>%
+  mutate(ratio = str_replace(ratio, "Z", "0N:1P")) %>%
+  ggplot(aes(x = PC1, y = PC2, group = rate)) + 
+  geom_point(aes(color = rate), size = 0.75) + 
+  geom_polygon(aes(fill = rate), alpha = 0.5) + 
+  # scale_fill_continuous(values = mycolors) + 
+  theme_bw() + 
+  facet_grid2(~factor(ratio, levels = c("0N:1P", "6N:1P", "16N:1P"))~date, scales = "free", independent = "y")  + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size = 7), axis.text.y = element_text(size = 7))
+```
+
+
+### Heatmap
+Grouping - metabolites present at beginning (T0) versus middle (7/14-7/21) versus end (7/27)
+```{r}
+quant_nmds_heat <- data_vis_qual %>% 
+  group_by(metabolite, treatment, date) %>%
+  summarise(avg_nmol = mean(nM)) %>%
+  ungroup() %>%
+  mutate(id = paste(date, treatment)) 
+# %>% 
+#   filter(str_detect(treatment, "RH|RL|LH|LL"))
+
+heatmap_data <- quant_nmds_heat %>% 
+  # group_by(metabolite) %>%
+  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
+  # filter(avg_nmol >= 0.01) %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  # mutate(norm_conc=(avg_nmol-min(avg_nmol))/(max(avg_nmol)-min(avg_nmol))) %>% 
+  # mutate(norm_conc=scale(avg_nmol)[,1]) %>%
+  select(metabolite, norm_conc, id) %>%
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  mutate(id=factor(id, levels=c(heat_level_order_treat))) %>%
+  arrange(id) %>%
+  na.omit() %>% 
+  column_to_rownames("id")
+
+
+plotheatmap <- heatmap_data %>%
+  data.matrix() %>% 
+  heatmaply(fontsize_row = 7, fontsize_col = 7)
+  # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+
+# make clustered heatmap from scratch using pheatmap
+
+plotheatmap
+```
+
+## General summed metabolite conc
+absolute/relative abundances

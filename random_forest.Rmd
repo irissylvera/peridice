@@ -1,0 +1,53 @@
+---
+title: "random_forest_model"
+author: "Iris Kern"
+date: "2023-12-13"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(pls)
+library(stats)
+library(randomForest)
+```
+
+
+```{r}
+peridice <- read_csv("PERIDICE_metabolite_data.csv") 
+gradients <- read_csv("csvs/G1_Metab_Data.csv")
+grad_meta <- read_csv("csvs/G1_MetaData.csv")
+
+grad_rf_data <- gradients %>% 
+  select(-c("Compound_name_in_figures")) %>% 
+  pivot_longer(!Complete_compound_name, names_to = "Sample_ID", values_to = "nmol") %>% 
+  left_join(grad_meta) %>% 
+  rename(metabolite = Complete_compound_name, n_nmol = NO3_NO2, pc = PC_nM, pn = PN_nM) %>% 
+  mutate(nm_per_pc = nmol/pc) %>% 
+  mutate(n_per_pc = n_nmol/pc) 
+
+# %>%
+#   filter(str_detect(metabolite, "Guanine|Arsenobetaine"))
+
+peridice_rf_data <- peridice %>% 
+  select(nmol, filename, metabolite, n_nmol = added_N_uM, pc, pn) %>% 
+  mutate(nm_per_pc = nmol/pc) %>% 
+  mutate(n_nmol = replace_na(n_nmol, 0)) %>%
+  # filter(str_detect(filename, "T0|27July")) %>% 
+  mutate(n_per_pc = n_nmol/pc) %>% 
+  # select(nmol, n_nmol) %>% 
+  group_by(metabolite, filename) %>%
+  # filter(str_detect(metabolite, "Guanine|Arsenobetaine")) %>% 
+  mutate(timepoint = str_extract(filename, "27June|30June|14July|21July|27July")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  mutate(treatment = str_extract(filename, "RH|RL|LH|LL|ZH|ZL|ZF|C"))
+```
+
+```{r}
+peri_rf <- randomForest()
+```
+

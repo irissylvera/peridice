@@ -26,8 +26,10 @@ grad_pcr <- gradients %>%
   left_join(grad_meta) %>% 
   rename(metabolite = Complete_compound_name, n_nmol = NO3_NO2, pc = PC_nM, pn = PN_nM) %>% 
   mutate(nm_per_pc = nmol/pc) %>% 
-  mutate(n_per_pc = n_nmol/pc) %>%
-  filter(str_detect(metabolite, "Guanine|Arsenobetaine"))
+  mutate(n_per_pc = n_nmol/pc) 
+
+# %>%
+#   filter(str_detect(metabolite, "Guanine|Arsenobetaine"))
 
 peridice_pcr <- peridice %>% 
   select(nmol, filename, metabolite, n_nmol = added_N_uM, pc, pn) %>% 
@@ -37,46 +39,56 @@ peridice_pcr <- peridice %>%
   mutate(n_per_pc = n_nmol/pc) %>% 
   # select(nmol, n_nmol) %>% 
   group_by(metabolite, filename) %>%
-  filter(str_detect(metabolite, "Guanine|Arsenobetaine"))
+  # filter(str_detect(metabolite, "Guanine|Arsenobetaine")) %>% 
+  mutate(timepoint = str_extract(filename, "27June|30June|14July|21July|27July")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  mutate(treatment = str_extract(filename, "RH|RL|LH|LL|ZH|ZL|ZF|C"))
+```
 
-messy <- peri_pca_analysis %>% 
-  left_join(peridice_pcr)
 
 
-messy %>%  
-  mutate(rate = str_replace(rate, "F", "H")) %>% 
-  mutate(rate = str_replace(rate, "H", "High Dose of Nutrients")) %>% 
-  mutate(rate = str_replace(rate, "L", "Low Dose of Nutrients")) %>% 
-  ggplot(aes(x = PC1, y = PC2, group = treatment, color = n_nmol)) + 
-  geom_point() + 
-  # geom_polygon(aes(fill = n_nmol), alpha = 0.5) + 
-  scale_color_viridis() + 
-  scale_fill_viridis() + 
-  theme_bw() + 
-  facet_grid2(~factor(date), scales = "free", independent = "y") + 
-  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size = 7), axis.text.y = element_text(size = 7))
+# Gradients Heatmap
+```{r}
+grad_nmds_heat <- grad_pcr %>% 
+  group_by(metabolite, Sample_ID, Time_UTC) %>%
+  summarise(avg_nmol = mean(nmol)) %>%
+  ungroup() %>%
+  mutate(id = paste(Time_UTC, Sample_ID))
 
-peri_pca_analysis %>% 
-  mutate(ratio = str_replace(ratio, "R", "1.5")) %>% 
-  mutate(ratio = str_replace(ratio, "L", "0.05")) %>%
-  mutate(ratio = str_replace(ratio, "Z", "0.0")) %>%
-  # filter(str_detect(replicate, "21July")) %>% 
-  filter(str_detect(rate, "H")) %>% 
-  mutate(rate = str_replace(rate, "H", "High Dose of Nutrients")) %>% 
-  mutate(rate = str_replace(rate, "L", "Low Dose of Nutrients")) %>% 
-  ggplot(aes(x = PC1, y = PC2, group = factor(ratio, levels = c("1.5", "0.05", "0.0")))) + 
-  # geom_point(aes(fill = ratio, color = ratio), size = 0.5) + 
-  geom_point(aes(color = ratio), size = 0.75) + 
-  geom_polygon(aes(fill = ratio), alpha = 0.5) + 
-  # scale_color_discrete(name = "Ratio") + 
-  theme_bw() + 
-  facet_grid2(~date, scales = "free", independent = "y")  + 
-  theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size = 10), axis.text.y = element_text(size = 10))
+# %>% 
+#   filter(str_detect(metabolite, "Guanine|Arsenobetaine|Hydroxyisoleucine|Betonicine|Trigonelline|Gonyol|beta-Alanine|Glycine betaine|Carnitine|Sarcosine|L-Cystathionine|Ectoine|Proline betaine|L-Proline|Cytosine|Isethionic acid"))
+
+
+grad_heatmap_data <- grad_nmds_heat %>% 
+  complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
+  group_by(metabolite) %>% 
+  # mutate(norm_conc = rank(avg_nmol)) %>%
+  mutate(norm_conc = (avg_nmol - min(avg_nmol)) / (max(avg_nmol) - min(avg_nmol))) %>% 
+  select(metabolite, norm_conc, id) %>%
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  mutate(id=factor(id)) %>%
+  arrange(id) %>%
+  na.omit() %>% 
+  column_to_rownames("id")
+
+
+grad_plotheatmap <- grad_heatmap_data %>%
+  data.matrix() %>% 
+  heatmaply(fontsize_row = 5, fontsize_col = 3)
+# 
+# %>%
+#   heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
+
+# make clustered heatmap from scratch using pheatmap
+
+grad_plotheatmap
 ```
 
 # Peridice test and train
 ```{r}
-peri_pcr_model <- pcr(n_nmol~nm_per_pc+metabolite, data = peridice_pcr, scale = TRUE, validation = "LOO")
+peri_pcr_model <- pcr(n_nmol~date+treatment+nmol, data = peridice_pcr, scale = TRUE, validation = "CV")
 
 test_peri <- predict(peri_pcr_model, newdata = peridice_pcr)
 
@@ -85,20 +97,18 @@ summary(peri_pcr_model)
 
 actual_values <- peridice_pcr$n_nmol
 
-results <- data.frame(actual = actual_values, predicted = test_peri) %>% 
-  rename(predicted1 = predicted.n_nmol.1.comps) %>% 
-  rename(predicted2 = predicted.n_nmol.2.comps) 
+results <- data.frame(actual = actual_values, predicted = test_peri)
 
 
 summary(pcr_model)
-ggplot(results, aes(x = actual, y = predicted2)) +
+ggplot(results, aes(x = actual, y = predicted.n_nmol.1.comps)) +
   geom_point() +
   geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
   labs(title = "PERI-DICE train and test",
        x = "Measured N (uM)",
        y = "Predicted N (uM)") +
-  xlim(0,5) + 
-  ylim(0,5) + 
+  # xlim(0,5) + 
+  # ylim(0,5) + 
   theme_bw()
 ```
 
@@ -112,11 +122,9 @@ test_grad <- predict(grad_pcr_model, newdata = grad_pcr)
 actual_values <- grad_pcr$n_nmol
 
 results <- data.frame(actual = actual_values, predicted = test_grad) %>% 
-  rename(predicted1 = predicted.n_nmol.1.comps) %>% 
-  filter(predicted1 > 0) %>% 
-  na.omit() %>% 
-  mutate(error_sq = sqrt((predicted1 - actual)^2/72))
-
+  # rename(predicted1 = predicted.n_nmol.1.comps) %>% 
+  # filter(predicted1 > 0) %>% 
+  na.omit() 
 summary(test_grad)
 
 summary(grad_pcr_model)
@@ -207,5 +215,51 @@ train_set_peri <- peridice_pcr[train_peri, ]
 test_set_peri <- peridice_pcr[-train_peri, ]
 
 
+```
+
+```{r}
+peridice_pcr <- peridice_pcr %>% 
+  mutate(c_n_ratio = pc/pn)
+
+peri_pcr_model <- pcr(pc~date+nmol+treatment, data = peridice_pcr, scale = TRUE, centers = TRUE, validation = "LOO")
+
+test_peri <- predict(peri_pcr_model, newdata = peridice_pcr)
+
+summary(test_peri)
+summary(peri_pcr_model)
+
+actual_values <- peridice_pcr$pc
+
+results <- data.frame(actual = actual_values, predicted = test_peri)
+
+summary(pcr_model)
+ggplot(results, aes(x = actual, y = predicted.pc.9.comps)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
+  xlim(0,30) +
+  ylim(0,30) +
+  xlab("Measured Particulate Carbon") + 
+  ylab("Predicted Particulate Carbon") + 
+  theme_bw()
+```
+
+```{r}
+grad_pcr_model <- pcr(pc~Binned_latitude+nmol+Sample_ID, data = grad_pcr, scale = TRUE, centers = TRUE, validation = "CV")
+
+test_grad <- predict(grad_pcr_model, newdata = grad_pcr)
+
+summary(test_grad)
+summary(grad_pcr_model)
+
+grad_actual_values <- grad_pcr$pc
+
+grad_results <- data.frame(actual = grad_actual_values, predicted = test_grad)
+
+ggplot(grad_results, aes(x = actual, y = predicted.pc.1.comps)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +
+  # xlim(0,5) + 
+  # ylim(0,5) + 
+  theme_bw()
 ```
 
