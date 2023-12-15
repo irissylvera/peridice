@@ -47,6 +47,21 @@ peridice_pcr <- peridice %>%
   mutate(treatment = str_extract(filename, "RH|RL|LH|LL|ZH|ZL|ZF|C"))
 ```
 
+```{r}
+peri_pca <- peridice_pcr %>% 
+  select(metabolite, filename, nmol) %>% 
+  filter(!str_detect(filename, "T0")) %>% 
+  distinct(nmol, .keep_all = TRUE) %>% 
+  group_by(metabolite) %>% 
+  mutate(nmol = rank(nmol)) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "nmol") %>% 
+  column_to_rownames("filename") %>% 
+  data.matrix() %>% 
+  `[<-`(is.na(.), 0) %>% 
+  prcomp(center = TRUE, scale. = TRUE)
+
+plot(peri_pca)
+```
 
 
 # Gradients Heatmap
@@ -199,40 +214,23 @@ ggplot(results, aes(x = actual, y = predicted1)) +
 gradients 1 principal component 
 
 
-
-
 ```{r}
-peri_filt <- peridice_pcr %>% 
-  select(nmol, n_nmol)
+peridice_pcr %>% 
+  filter(metabolite == "Cytosine") %>% 
+  ggplot() + 
+  geom_point(aes(x = nmol, y = pc, color = factor(date)))
 
-smp_size <- floor(0.75 * nrow(peri_filt))
-
-## set the seed to make your partition reproducible
-set.seed(20)
-train_peri <- sample(seq_len(nrow(peri_filt)), size = smp_size)
-
-train_set_peri <- peridice_pcr[train_peri, ]
-test_set_peri <- peridice_pcr[-train_peri, ]
-
-
-```
-
-```{r}
-peridice_pcr <- peridice_pcr %>% 
-  mutate(c_n_ratio = pc/pn)
-
-peri_pcr_model <- pcr(pc~date+nmol+treatment, data = peridice_pcr, scale = TRUE, centers = TRUE, validation = "LOO")
+peri_pcr_model <- pcr(pc~date+treatment+nmol, data = peridice_pcr, scale = TRUE, centers = TRUE, validation = "LOO")
 
 test_peri <- predict(peri_pcr_model, newdata = peridice_pcr)
 
 summary(test_peri)
-summary(peri_pcr_model)
+summary(peri_pcr_model) 
 
 actual_values <- peridice_pcr$pc
 
 results <- data.frame(actual = actual_values, predicted = test_peri)
 
-summary(pcr_model)
 ggplot(results, aes(x = actual, y = predicted.pc.9.comps)) +
   geom_point() +
   geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +

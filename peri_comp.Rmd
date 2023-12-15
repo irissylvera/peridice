@@ -17,8 +17,8 @@ library(heatmaply)
 library(ggnewscale)
 library(readr)
 library(readxl)
-# library(corrr)
-# library(ggcorrplot)
+library(corrr)
+library(ggcorrplot)
 library(FactoMineR)
 library(stats)
 library(ggfortify)
@@ -43,10 +43,17 @@ quant_data <- read_csv("csvs/quant_data.csv") %>%
 metadataframe <- read_csv("csvs/metadataframe.csv")
 pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
   select(tank = Tank, treatment = Treatment2, date = Date, pn = `PN (uM)`, pc = `PC (uM)`, cn = Cnratio,added_N_uM = AddN) %>% 
-  mutate(triplicate = str_extract(tank, "\\d"))
+  mutate(triplicate = str_extract(tank, "\\d")) %>% 
+  mutate(tank = str_remove (tank, "1/2|1/3|2/2"))  %>% 
+  group_by(tank, date) %>% 
+  mutate(pc = mean(pc)) %>% 
+  distinct(pc, .keep_all = TRUE) %>% 
+  mutate(timepoint = )
+  mutate(replicate = paste0("230616_Smp_", ""))
+  
 
 data_vis <- quant_data %>%  
-  mutate(treatment = str_extract(replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(treatment = str_extract(replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote1|Tote2|Tote3|Tote4")) %>% 
   mutate(timepoint = str_extract(replicate, "27June|30June|14July|21July|27July")) %>% 
   mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
   mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
@@ -78,9 +85,18 @@ heat_level_order_date <- c("2022-06-27 Tote", "2022-06-30 C","2022-06-30 ZF", "2
                            "2022-07-27 ZH", "2022-07-27 LL", "2022-07-27 LH", "2022-07-27 RL",  "2022-07-27 RH")
 
 data_vis_norm <- data_vis %>% 
+  group_by(replicate, date, metabolite) %>% 
+  mutate(nM = mean(nM)) %>% 
   left_join(pcpn) %>% 
-  mutate(nmol_per_pc = nM/pc)
-  select(replicate, metabolite, treatment, date, nM, triplicate, nmol_per_pc)
+  mutate(nmol_per_pc = nM/pc) %>% 
+  select(replicate, metabolite, treatment, date, nM, triplicate, nmol_per_pc) %>% 
+  mutate(treatment = str_remove(treatment, "\\d"))
+
+metab_groups <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                              stringsAsFactors = FALSE, header = TRUE) %>% 
+  select(metabolite = Compound_Name, emp_form = Empirical_Formula, metab_type = Compound_Type)
+
 ```
 
 ## Quality Control
@@ -88,9 +104,14 @@ data_vis_norm <- data_vis %>%
 metab_qual <- read_csv("csvs/peak_quality.csv") %>% 
   select(metabolite = Metabolite, quality = Quality)
 
-data_vis_qual <- data_vis %>% 
+data_vis_qual <- data_vis_norm %>% 
   left_join(metab_qual) %>% 
-  filter(quality == "Good")
+  filter(quality == "Good") %>% 
+  mutate(ratio = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
+  mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>% 
+  left_join(metab_groups) %>% 
+  filter(metab_type != "Cursed") %>% 
+  na.omit()
 ```
 
 ## Metadata
@@ -131,9 +152,58 @@ pcpn %>%
 ## Stats
 ### NMDS
 ```{r}
+quant_nmds <- data_vis_qual %>% 
+  # arrange(desc(nM)) %>% 
+  # group_by(metabolite, replicate) %>% 
+  # slice(1) %>% 
+  group_by(metabolite, treatment, date) %>%
+  summarise(avg_nmol = mean(nmol_per_pc)) %>%
+  ungroup() %>%
+  # complete(metabolite, date, treatment) %>%
+  # mutate(avg_nmol = replace_na(avg_nmol, 0)) %>%
+  mutate(id = paste(date, treatment)) %>% 
+  filter(!str_detect(treatment, "Tote"))
 
+quant_mat <- quant_nmds %>%
+  group_by(metabolite) %>%
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc", values_fill = 0) %>%
+  column_to_rownames("id") %>%
+  data.matrix() 
+
+mdsout <- quant_mat %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data <- metadataframe %>% 
+  ungroup() %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  filter(str_detect(filename, "Smp")) %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
+  mutate(id = paste(date, treatment))
+
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data) %>%
+  mutate(date_fct = factor(date)) %>% 
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=factor(treatment, levels = level_order), shape = date_fct), size=4) +
+  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("Control","0N:1P:1Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  scale_shape_discrete(name = "Date") + 
+  theme_bw() + 
+  ggtitle("Variation of Metabolite Concentration (nM) Across Treatments")
 ```
+Key takeaways: temporal shift but when normalizing to pc, the trends in treatments are more distinct. The controls as well as the 0N treatments remain closer to the 6-30 treatments, but the 6N,16N treatments branch out more.
 
+Cool thoughts: maybe make nmds for ratio/rate? that's normalized to pc?
 
 ### PCA
 generate pca and check variations explained by each principal component
@@ -141,14 +211,15 @@ generate pca and check variations explained by each principal component
 rate_ratio <- data_vis_qual %>% 
   mutate(ratio = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
   mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
   # mutate(rate = str_replace(rate, "F", "H")) %>% 
   mutate(replicate = str_remove(replicate, "230616_Smp_"))
 
 pca_mat <- rate_ratio %>% 
-  select(metabolite, replicate, nM) %>% 
+  select(metabolite, replicate, nmol_per_pc) %>% 
   group_by(metabolite) %>% 
-  mutate(nM = rank(nM)) %>% 
-  pivot_wider(names_from = "metabolite", values_from = "nM") %>% 
+  mutate(nmol_per_pc = rank(nmol_per_pc)) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "nmol_per_pc") %>% 
   column_to_rownames("replicate") %>% 
   data.matrix() %>% 
   `[<-`(is.na(.), 0)
@@ -156,15 +227,15 @@ pca_mat <- rate_ratio %>%
 prcomp(pca_mat) %>%
   pluck("x") %>%
   as.data.frame() %>%
-  select(PC1:PC3) %>%
+  select(PC1:PC5) %>%
   rownames_to_column("replicate") %>%
   pivot_longer(starts_with("PC"), names_to = "PC", values_to = "PC_val") %>%
   left_join(rate_ratio) %>%
-  # plotly::plot_ly(x=~PC1, y=~PC2, z=~PC3, color=~depth)
   ggplot() +
-  # geom_point(aes(x=PC1, y=PC2, color=depth))
-  # geom_col(aes(x=filename, y=PC1, fill=depth))
   geom_col(aes(x=replicate, y=PC_val, fill=ratio)) +
+  # scale_fill_manual(values = c("plum2","gold", "brown3", "lightseagreen"),
+  #                    labels = c("Control","6N:1P", "16N:1P", "0N:1P"),
+  #                    name = "Treatment") + 
   theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
   facet_wrap(~PC, ncol=1)
 
@@ -177,9 +248,10 @@ peri_pca_analysis <- prcomp(pca_mat) %>%
   left_join(rate_ratio, by = "replicate")  %>% 
   mutate(PC1 = as.numeric(PC1)) %>% 
   mutate(PC2 = as.numeric(PC2))
+
 ```
 
-plot
+plot pca
 ```{r}
 peri_pca_analysis %>% 
   mutate(ratio = str_replace(ratio, "R", "16N:1P")) %>% 
@@ -216,23 +288,20 @@ peri_pca_analysis %>%
   facet_grid2(~factor(ratio, levels = c("0N:1P", "6N:1P", "16N:1P"))~date, scales = "free", independent = "y")  + 
   theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size = 7), axis.text.y = element_text(size = 7))
 ```
+Key takeaways: high dose nutrients split up by ratio - become more selective? Low dose nutrients group 16N and 6N together (week 2, nowhere else). Everything shifts at the 4 week mark, metabolome has shifted but what is that shift? More AAs? 
 
+nutrients with 0N never split by rate of nutrient addition. 6N and 16N split by nutrient rate but only really on week 3. This is also again showing a divergence at 4 week mark - shift of metabolome, what is it?
 
 ### Heatmap
 Grouping - metabolites present at beginning (T0) versus middle (7/14-7/21) versus end (7/27)
 ```{r}
 quant_nmds_heat <- data_vis_qual %>% 
   group_by(metabolite, treatment, date) %>%
-  summarise(avg_nmol = mean(nM)) %>%
+  summarise(avg_nmol = mean(nmol_per_pc)) %>%
   ungroup() %>%
   mutate(id = paste(date, treatment)) 
-# %>% 
-#   filter(str_detect(treatment, "RH|RL|LH|LL"))
 
 heatmap_data <- quant_nmds_heat %>% 
-  # group_by(metabolite) %>%
-  # filter(str_detect(treatment, "RH|RL|C|Tote")) %>% 
-  # filter(avg_nmol >= 0.01) %>% 
   complete(metabolite, id, fill = list(avg_nmol = 0)) %>% 
   group_by(metabolite) %>% 
   mutate(norm_conc = rank(avg_nmol)) %>%
@@ -251,10 +320,31 @@ plotheatmap <- heatmap_data %>%
   heatmaply(fontsize_row = 7, fontsize_col = 7)
   # heatmaply(Rowv = FALSE, fontsize_row = 10, fontsize_col = 7)
 
-# make clustered heatmap from scratch using pheatmap
-
 plotheatmap
 ```
 
+
+### Foldchange K Means clusters?
+
+
 ## General summed metabolite conc
 absolute/relative abundances
+```{r}
+nb.cols <- 19
+mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
+
+data_vis_qual %>% 
+  mutate(rate = str_replace(rate, "F", "H")) %>% 
+  filter(str_detect(replicate, "Tote|30June|27July")) %>% 
+  ggplot() +
+  geom_col(aes(x = date, y = nmol_per_pc, fill = metab_type), position = "stack") + 
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~treatment) + 
+  theme_bw()
+```
+
+NEED: To put Tote data in each treatment, just as a date. 
+
+# QUESTIONS/STORIES - Need those :/
+
+# Principal Component Regression
