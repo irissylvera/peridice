@@ -46,9 +46,8 @@ pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>%
   mutate(triplicate = str_extract(tank, "\\d")) %>% 
   mutate(tank = str_remove (tank, "1/2|1/3|2/2"))  %>% 
   group_by(tank, date) %>% 
-  mutate(pc = mean(pc)) %>% 
-  distinct(pc, .keep_all = TRUE) %>% 
-  mutate(timepoint = )
+  mutate(mean_pc = mean(pc)) %>% 
+  distinct(mean_pc, .keep_all = TRUE) %>% 
   mutate(replicate = paste0("230616_Smp_", ""))
   
 
@@ -87,9 +86,9 @@ heat_level_order_date <- c("2022-06-27 Tote", "2022-06-30 C","2022-06-30 ZF", "2
 data_vis_norm <- data_vis %>% 
   group_by(replicate, date, metabolite) %>% 
   mutate(nM = mean(nM)) %>% 
-  left_join(pcpn) %>% 
+  left_join(pcpn, by = c("treatment", "date", "triplicate")) %>% 
   mutate(nmol_per_pc = nM/pc) %>% 
-  select(replicate, metabolite, treatment, date, nM, triplicate, nmol_per_pc) %>% 
+  select(replicate = replicate.x, metabolite, treatment, date, nM, triplicate, nmol_per_pc) %>% 
   mutate(treatment = str_remove(treatment, "\\d"))
 
 metab_groups <- read.csv(
@@ -105,13 +104,12 @@ metab_qual <- read_csv("csvs/peak_quality.csv") %>%
   select(metabolite = Metabolite, quality = Quality)
 
 data_vis_qual <- data_vis_norm %>% 
-  left_join(metab_qual) %>% 
+  left_join(metab_qual, by = c("metabolite"), relationship = "many-to-many") %>% 
   filter(quality == "Good") %>% 
   mutate(ratio = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
   mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>% 
-  left_join(metab_groups) %>% 
-  filter(metab_type != "Cursed") %>% 
-  na.omit()
+  left_join(metab_groups, by =c("metabolite"), relationship = "many-to-many") %>% 
+  filter(metab_type != "Cursed")
 ```
 
 ## Metadata
@@ -146,8 +144,15 @@ pcpn %>%
   ylab("Particulate Carbon") + 
   xlab("Date")
 ```
-
- 
+Particulate Carbon Trends:
+C - no trend (slight spike at 2 week)
+LH - first spike at 2 weeks, down at 3, way higher at 4
+LL - peak at 2 weeks, down after
+RH - sharp increase all 4 weeks
+RL - peak at 2 weeks, down at 3, up at 4
+ZF - small growth up 4 weeks
+ZH - 2 week spike, down at 3, up higher at 4
+ZL - max peak at 2 weeks, down at 3, slightly up at 4.
 
 ## Stats
 ### NMDS
@@ -204,6 +209,53 @@ mdsout$points %>%
 Key takeaways: temporal shift but when normalizing to pc, the trends in treatments are more distinct. The controls as well as the 0N treatments remain closer to the 6-30 treatments, but the 6N,16N treatments branch out more.
 
 Cool thoughts: maybe make nmds for ratio/rate? that's normalized to pc?
+
+```{r}
+# quant_nmds_rate <- data_vis_qual %>% 
+#   group_by(metabolite, rate, date) %>%
+#   summarise(avg_nmol = mean(nmol_per_pc)) %>%
+#   ungroup() %>%
+#   mutate(id = paste(date, rate)) %>% 
+#   filter(!str_detect(rate, "Tote"))
+# 
+# quant_mat_rate <- quant_nmds_rate %>%
+#   group_by(metabolite) %>%
+#   mutate(norm_conc = rank(avg_nmol)) %>%
+#   select(metabolite, norm_conc, id) %>% 
+#   pivot_wider(names_from = "metabolite", values_from = "norm_conc", values_fill = 0) %>%
+#   column_to_rownames("id") %>%
+#   data.matrix() 
+# 
+# mdsout_rate <- quant_mat_rate %>%
+#   metaMDS(k = 2, autotransform = FALSE)
+# 
+# mds_data_rate <- metadataframe %>% 
+#   ungroup() %>% 
+#   mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+#   mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+#   mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+#   filter(str_detect(filename, "Smp")) %>% 
+#   mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>% 
+#   mutate(id = paste(date, rate))
+# 
+# 
+# mdsout_rate$points %>%
+#   as.data.frame() %>%
+#   rownames_to_column("id") %>%
+#   left_join(mds_data) %>%
+#   mutate(date_fct = factor(date)) %>% 
+#   ggplot() +
+#   geom_point(aes(x=MDS1, y=MDS2, shape = date_fct), size=4) +
+#   # scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+#   #                    labels = c("Control","0N:1P:1Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+#   #                               "6N:1P, low dose added", "6N:1P, high dose added",
+#   #                               "16N:1P, low dose added", "16N:1P, high dose added"),
+#   #                    name = "Treatment") +
+#   scale_shape_discrete(name = "Date") + 
+#   theme_bw() + 
+#   ggtitle("Variation of Metabolite Concentration (nM) Across Treatments")
+```
+
 
 ### PCA
 generate pca and check variations explained by each principal component
@@ -327,17 +379,26 @@ plotheatmap
 ### Foldchange K Means clusters?
 
 
+## Formatting Tote - NEED HELP WITH THIS
+I need to make it so that each treatment has a date of 6-27, which will all be the same Tote data
+```{r}
+# data_vis_form <- data_vis_qual %>% 
+#   group_by(metabolite, )
+#   pivot_wider(names_from = metabolite, values_from = nM)
+```
+
+
 ## General summed metabolite conc
 absolute/relative abundances
 ```{r}
 nb.cols <- 19
 mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
 
-data_vis_qual %>% 
+metab_type_plot <- data_vis_qual %>% 
   mutate(rate = str_replace(rate, "F", "H")) %>% 
   filter(str_detect(replicate, "Tote|30June|27July")) %>% 
   ggplot() +
-  geom_col(aes(x = date, y = nmol_per_pc, fill = metab_type), position = "stack") + 
+  geom_col(aes(x = factor(date), y = nmol_per_pc, fill = metab_type), position = "stack") + 
   scale_fill_manual(values = mycolors) + 
   facet_wrap(~treatment) + 
   theme_bw()
@@ -345,6 +406,77 @@ data_vis_qual %>%
 
 NEED: To put Tote data in each treatment, just as a date. 
 
+Metabolome composition (relative) - 
+T0 - lots amino acids, then betaines, then amino acid derivatives, then nucleic acid = sulfur, then purine derivatives.
+
+3 day period - 
+C, LH, LL, RH, RL, ZF, ZH, ZL. all have a lot osmolytes - stress??? The fact that all treatments are the same indicates it's not a response to treatment but rather things dying bc of mesocosm? bottle effects?
+
+2 week period - 
+
+4 week period - 
+LL, LH, ZF, ZH all have more amino acid derivatives
+Osmolytes decrease in all treatments again - indicates adjustment? 
+Sulfur metabs - increase in all treatments except ZH? change is less drastic in all treatments apart from LH and RL.
+
+What changes are significant in 
+
+```{r}
+nb.cols <- 19
+mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
+
+metab_type_plot <- data_vis_qual %>% 
+  mutate(rate = str_replace(rate, "F", "H")) %>% 
+  filter(str_detect(replicate, "Tote|30June|14July|27July")) %>% 
+  ggplot() +
+  geom_col(aes(x = factor(date), y = nmol_per_pc, fill = metab_type), position = "stack") + 
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~rate) + 
+  theme_bw()
+```
+
+Trends by rate (relative) - 
+nucleoside derivatives: TO - not present. 6/30 - Lots in C, less in L, H. 7/14 and 7/27 - decrease.
+Osmolytes - same trend - more gradual die off in C - more stressed? most extreme change in L. (reach equilibrium? less extreme growth than in H?) 
+Sulfur - increasing across time with all treatments, fastest increase at 2 week mark but most extreme in C. Least in H (actually decreases at 4 with H)
+Amino acid derivatives - 4 week mark greatest in L, but also lots in H. less in C and T0
+Betaines - no significant change?
+
+Maybe do something with fold change relative to T0 to see which treatments return closest to "normal environmental conditions"
+
+Trends by rate (absolute) - 
+highest absolute nM (not normalized) of summed metabolites in H on week 2. L follows same trend but less extreme. 
+highest nM per pc is 6/30? what does this mean.
+
+Overall: 
+amino acid relative abundance doesn't change but absolute does. Similar with betaines.
+What does this mean?
+
+
 # QUESTIONS/STORIES - Need those :/
+
+```{r}
+sulfur <- data_vis_qual %>% 
+  filter(metab_type == "Sulfur") 
+  
+sulfur %>% 
+  group_by(metabolite, treatment, date) %>% 
+  # filter(str_detect(metabolite, "Glycerophosphocholine|Phosphocholine")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  ggplot(aes(x = date, y = nmol_per_pc, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  scale_y_log10() + 
+  facet_grid(~metabolite, scales = "free_y") +
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)")
+```
+
 
 # Principal Component Regression
