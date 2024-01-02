@@ -110,7 +110,9 @@ data_vis_qual <- data_vis_norm %>%
   mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>% 
   left_join(metab_groups, by = c("metabolite")) %>% 
   distinct() %>% 
-  filter(metab_type != "Cursed")
+  filter(metab_type != "Cursed") %>% 
+  filter(!str_detect(metabolite, "Amino hydroxypropanesulfonate")) %>% 
+  na.omit()
 ```
 
 ## Metadata
@@ -212,49 +214,21 @@ Key takeaways: temporal shift but when normalizing to pc, the trends in treatmen
 Cool thoughts: maybe make nmds for ratio/rate? that's normalized to pc?
 
 ```{r}
-# quant_nmds_rate <- data_vis_qual %>%
-#   group_by(metabolite, rate, date) %>%
-#   summarise(avg_nmol = mean(nmol_per_pc)) %>%
-#   ungroup() %>% 
-#   mutate(id = paste(date, rate)) %>%
-#   filter(!str_detect(rate, "Tote"))
-# 
-# quant_mat_rate <- quant_nmds_rate %>%
-#   group_by(metabolite) %>%
-#   mutate(norm_conc = rank(avg_nmol)) %>%
-#   select(metabolite, norm_conc, id) %>%
-#   pivot_wider(names_from = "metabolite", values_from = "norm_conc", values_fill = 0) %>%
-#   column_to_rownames("id") %>%
-#   data.matrix()
-# 
-# mdsout_rate <- quant_mat_rate %>%
-#   metaMDS(k = 2, autotransform = FALSE)
-# 
-# mds_data_rate <- metadataframe %>%
-#   ungroup() %>%
-#   mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>%
-#   mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>%
-#   mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>%
-#   filter(str_detect(filename, "Smp")) %>%
-#   mutate(rate = str_extract(treatment,  "H$|L$|C|F|Tote")) %>%
-#   mutate(id = paste(date, rate))
-# 
-# 
-# mdsout_rate$points %>%
-#   as.data.frame() %>%
-#   rownames_to_column("id") %>%
-#   left_join(mds_data) %>%
-#   mutate(date_fct = factor(date)) %>%
-#   ggplot() +
-#   geom_point(aes(x=MDS1, y=MDS2, shape = date_fct), size=4) +
-#   # scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
-#   #                    labels = c("Control","0N:1P:1Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
-#   #                               "6N:1P, low dose added", "6N:1P, high dose added",
-#   #                               "16N:1P, low dose added", "16N:1P, high dose added"),
-#   #                    name = "Treatment") +
-#   scale_shape_discrete(name = "Date") +
-#   theme_bw() +
-#   ggtitle("Variation of Metabolite Concentration (nM) Across Treatments")
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data) %>%
+  mutate(date_fct = factor(date)) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, shape = date_fct), size=4) +
+  # scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+  #                    labels = c("Control","0N:1P:1Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+  #                               "6N:1P, low dose added", "6N:1P, high dose added",
+  #                               "16N:1P, low dose added", "16N:1P, high dose added"),
+  #                    name = "Treatment") +
+  scale_shape_discrete(name = "Date") +
+  theme_bw() +
+  ggtitle("Variation of Metabolite Concentration (nM) Across Treatments")
 ```
 
 
@@ -285,22 +259,23 @@ prcomp(pca_mat) %>%
   pivot_longer(starts_with("PC"), names_to = "PC", values_to = "PC_val") %>%
   left_join(rate_ratio) %>%
   ggplot() +
-  geom_col(aes(x=replicate, y=PC_val, fill=ratio)) +
+  geom_col(aes(x=replicate, y=PC_val, fill=rate)) +
   # scale_fill_manual(values = c("plum2","gold", "brown3", "lightseagreen"),
   #                    labels = c("Control","6N:1P", "16N:1P", "0N:1P"),
   #                    name = "Treatment") + 
   theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
-  facet_wrap(~PC, ncol=1)
+  facet_wrap(~PC, ncol=1, scales = "free_y")
 
 peri_pca_analysis <- prcomp(pca_mat) %>%
   pluck("x") %>%
   as.data.frame() %>%
-  select(PC1:PC2) %>%
+  select(PC1:PC3) %>%
   rownames_to_column("replicate") %>%
   # pivot_longer(starts_with("PC"), names_to = "PC", values_to = "PC_val") %>%
   left_join(rate_ratio, by = "replicate")  %>% 
   mutate(PC1 = as.numeric(PC1)) %>% 
-  mutate(PC2 = as.numeric(PC2))
+  mutate(PC2 = as.numeric(PC2)) %>% 
+  mutate(PC3 = as.numeric(PC3))
 
 ```
 
@@ -314,7 +289,7 @@ peri_pca_analysis %>%
   filter(str_detect(rate, "H|L")) %>% 
   mutate(rate = str_replace(rate, "H", "High Dose of Nutrients")) %>% 
   mutate(rate = str_replace(rate, "L", "Low Dose of Nutrients")) %>% 
-  ggplot(aes(x = PC1, y = PC2, group = factor(ratio, levels = c("0N:1P", "6N:1P", "16N:1P")))) + 
+  ggplot(aes(x = PC2, y = PC3, group = factor(ratio, levels = c("0N:1P", "6N:1P", "16N:1P")))) + 
   # geom_point(aes(fill = ratio, color = ratio), size = 0.5) + 
   geom_point(aes(color = ratio), size = 0.75) + 
   geom_polygon(aes(fill = ratio), alpha = 0.5) + 
@@ -333,7 +308,7 @@ peri_pca_analysis %>%
   mutate(ratio = str_replace(ratio, "R", "16N:1P")) %>% 
   mutate(ratio = str_replace(ratio, "L", "6N:1P")) %>%
   mutate(ratio = str_replace(ratio, "Z", "0N:1P")) %>%
-  ggplot(aes(x = PC1, y = PC2, group = rate)) + 
+  ggplot(aes(x = PC2, y = PC3, group = rate)) + 
   geom_point(aes(color = rate), size = 0.75) + 
   geom_polygon(aes(fill = rate), alpha = 0.5) + 
   # scale_fill_continuous(values = mycolors) + 
@@ -382,9 +357,18 @@ plotheatmap
 
 ## Foldchange
 ```{r}
+data_vis_fc <- data_vis %>% 
+  select(-c("replicate")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  pivot_wider(names_from = treatment, values_from = nM, values_fn = mean) %>% 
+  pivot_longer(cols = c(ZF, ZL, ZH, LL, LH, RL, RH)) %>% 
+  mutate(fold_change = value/C)
+
 data_vis_km <- data_vis_qual %>% 
+  filter(!str_detect(metabolite, "Amino hydroxypropanesulfonate")) %>% 
+  ungroup() %>% 
+  select(-c("date", "triplicate", "nmol_per_pc", "rate", "ratio", "quality", "emp_form", "metab_type", "treatment"))  %>% 
   pivot_wider(names_from = metabolite, values_from = nM) %>% 
-  select(-c("treatment", "date")) %>% 
   column_to_rownames("replicate") %>% 
   data.matrix() %>%
   `[<-`(is.na(.), 0) %>%
@@ -397,9 +381,10 @@ data_vis_km <- data_vis_qual %>%
   rownames_to_column("metabolite")
 
 data_vis_cluster <- data_vis_fc %>% 
-  left_join(data_vis_km) %>% 
+  left_join(data_vis_km, by = c("metabolite")) %>% 
   rename(control = C, treatment = name, nM = value) %>% 
-  mutate(cluster = factor(cluster))
+  mutate(cluster = factor(cluster)) %>% 
+  na.omit()
 ```
 
 
@@ -461,7 +446,7 @@ metab_type_plot <- data_vis_qual %>%
   mutate(rate = str_replace(rate, "F", "H")) %>% 
   filter(str_detect(replicate, "Tote|30June|27July")) %>% 
   ggplot() +
-  geom_col(aes(x = factor(date), y = nmol_per_pc, fill = metab_type), position = "stack") + 
+  geom_col(aes(x = factor(date), y = nmol_per_pc, fill = metab_type), position = "fill") + 
   scale_fill_manual(values = mycolors) + 
   facet_wrap(~treatment) + 
   theme_bw()
@@ -526,7 +511,7 @@ sulfur %>%
   group_by(metabolite, treatment, date) %>% 
   # filter(str_detect(metabolite, "Glycerophosphocholine|Phosphocholine")) %>% 
   filter(!str_detect(treatment, "Tote")) %>% 
-  ggplot(aes(x = date, y = nM, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  ggplot(aes(x = date, y = nmol_per_pc, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
   geom_boxplot() + 
   scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
                      labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
@@ -548,7 +533,7 @@ osmos <- data_vis_qual %>%
   
 osmos %>% 
   group_by(metabolite, treatment, date) %>% 
-  filter(str_detect(metabolite, "Ectoine")) %>% 
+  # filter(str_detect(metabolite, "Ectoine")) %>% 
   filter(!str_detect(treatment, "Tote")) %>% 
   ggplot(aes(x = date, y = nmol_per_pc, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
   geom_boxplot() + 
@@ -563,6 +548,83 @@ osmos %>%
   theme_bw() + 
   xlab("Date") + 
   ylab("nM (nmol per L)")
+```
+
+
+```{r}
+aminos <- data_vis_qual %>% 
+  filter(metab_type == "Amino Acid") 
+  
+aminos %>% 
+  group_by(metabolite, treatment, date) %>% 
+  # filter(str_detect(metabolite, "Ectoine")) %>% 
+  # filter(!str_detect(treatment, "Tote")) %>% 
+  ggplot(aes(x = date, y = nmol_per_pc, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("plum2","mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("Control","0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  # scale_y_log10() + 
+  facet_wrap(~metabolite, ncol = 3, scales = "free_y") +
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)")
+```
+
+```{r}
+data_vis_qual %>% 
+  group_by(metabolite, treatment, date) %>% 
+  filter(str_detect(metabolite, "Sarcosine")) %>% 
+  filter(!str_detect(treatment, "C")) %>% 
+  ggplot(aes(x = date, y = nM, color = factor(treatment, levels = level_order), group = interaction(date, treatment))) +
+  geom_boxplot() + 
+  scale_color_manual(values = c("mediumpurple3","darkslategray2", "lightseagreen","gold", "lightcoral","orange", "brown3"),
+                     labels = c("0N:1P:0Fe, high dose P","0N:1P, low dose added", "0N:1P, high dose added",
+                                "6N:1P, low dose added", "6N:1P, high dose added",
+                                "16N:1P, low dose added", "16N:1P, high dose added"),
+                     name = "Treatment") +
+  guides(fill=guide_legend(ncol=2)) + 
+  # scale_y_log10() + 
+  facet_wrap(~metabolite, ncol = 3, scales = "free_y") +
+  theme_bw() + 
+  xlab("Date") + 
+  ylab("nM (nmol per L)")
+```
+
+What becomes more important as there is more nitrogen limitation?
+```{r}
+nb.cols <- 18
+mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
+
+metab_plot <- data_vis_qual %>% 
+  filter(!str_detect(replicate, "Tote|C")) %>% 
+  mutate(rate = str_replace(rate, "F", "H")) %>% 
+  ggplot() + 
+  geom_col(aes(x = factor(date), y = nM, fill = metab_type), position = "stack") + 
+  scale_fill_manual(values = mycolors) + 
+  facet_grid(~ratio~rate) + 
+  theme_bw()
+
+ggplotly(metab_plot)
+```
+amino acid derivatives, betaines, glycine metabolite, osmolyte, sulfur
+
+```{r}
+nb.cols <- 5
+mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
+
+data_vis_qual %>% 
+  filter(!str_detect(replicate, "Tote|C")) %>% 
+  filter(str_detect(metab_type, "Amino Acid derivative|Betaine|Glycine metabolite|Osmolyte|Sulfur")) %>% 
+  mutate(rate = str_replace(rate, "F", "H")) %>% 
+  ggplot() + 
+  geom_col(aes(x = factor(date), y = nM, fill = metab_type), position = "stack") + 
+  scale_fill_manual(values = mycolors) + 
+  facet_grid(~ratio~rate) + 
+  theme_bw()
 ```
 
 
