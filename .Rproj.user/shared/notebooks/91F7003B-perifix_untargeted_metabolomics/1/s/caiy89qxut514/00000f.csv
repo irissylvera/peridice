@@ -1,4 +1,0 @@
-"0","nb.cols <- 10"
-"0","mycolors <- colorRampPalette(brewer.pal(8, ""Set1""))(nb.cols)"
-"0",""
-"0","mycolors <- c(mycolors, ""gray60"")"

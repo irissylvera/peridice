@@ -11,15 +11,15 @@ output: html_document
 library(tidyverse)
 library(ggplot2)
 library(RColorBrewer)
-library(plotly)
-library(vegan)
-library(heatmaply)
+# library(plotly)
+# library(vegan)
+#library(heatmaply)
 library(ggnewscale)
 library(readr)
 library(readxl)
 library(corrr)
 library(ggcorrplot)
-library(FactoMineR)
+#library(FactoMineR)
 library(stats)
 library(ggfortify)
 library(ggh4x)
@@ -629,3 +629,5 @@ data_vis_qual %>%
 
 
 # Principal Component Regression
+`
+
