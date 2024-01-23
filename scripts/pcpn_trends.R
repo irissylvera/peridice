@@ -2,6 +2,7 @@ library(tidyverse)
 library(readr)
 library(readxl)
 library(ggplot2)
+library(ggpubr)
 
 # Goal: correspondence between metabolites and poc or pon (grab specific metabs)
 
@@ -45,7 +46,7 @@ pcpn %>%
   ylab("Particulate Carbon") + 
   xlab("Date")
 
-#### Observations: RH RL Lh all grow consistently, LL doesn't have significant change (equilibrium?)
+#### Observations: RH RL Lh all grow consistently, LL doesn't have significant change
 
 ## pn 
 pcpn %>%  
@@ -128,14 +129,87 @@ peri_cluster %>%
 
 peri %>% 
   ggplot() + 
-  geom_point(aes(x = nmol, y = pc)) + 
+  geom_point(aes(x = nmol, y = pn)) + 
   facet_wrap(~metabolite)
 
-pc_metabs <- data.frame(metabolite = c("Dimethylsulfoniopropionate", 
+pc_metabs <- data.frame(metabolite = c("2-O-alpha-D-Glucosylglycerol",
+                                       "Dimethylsulfoniopropionate", 
                                        "L-Alanine", "L-Glutamine"))
 peri %>% 
   filter(metabolite %in% pc_metabs$metabolite) %>% 
   ggplot() + 
   geom_point(aes(x = nmol, y = pc, color = treatment)) + 
+  facet_wrap(~metabolite, scales = "free") + 
+  theme_bw()
+
+peri %>% 
+  filter(metabolite %in% pc_metabs$metabolite) %>% 
+  ggscatter(x = "nmol", y = "pc", 
+            add = "reg.line", conf.int = TRUE, 
+            cor.coef = TRUE, cor.method = "spearman",
+            xlab = "nmol", ylab = "pc", color = "treatment",
+            palette = c(C = "plum2", ZF = "mediumpurple3", ZL = "darkslategray2", 
+                        ZH = "lightseagreen",
+                       LL = "gold", LH = "lightcoral",
+                       RL = "orange", RH = "brown3")) + 
   facet_wrap(~metabolite, scales = "free")
 
+pn_metabs <- data.frame(metabolite = c("2-O-alpha-D-Glucosylglycerol",
+                                       " Dimethylsulfoniopropionate",
+                                       "L-Alanine", "L-Aspartic acid",
+                                       "L-Glutamine", "L-Leucine"))
+
+peri %>% 
+  filter(metabolite %in% pn_metabs$metabolite) %>% 
+  ggplot() + 
+  geom_point(aes(x = nmol, y = pn, color = treatment)) + 
+  facet_wrap(~metabolite, scales = "free") + 
+  theme_bw()
+
+peri %>% 
+  group_by(metabolite) %>% 
+  distinct(nmol, .keep_all = TRUE) %>% 
+  distinct(pc, .keep_all = TRUE) %>% 
+  mutate(rank_nmol = rank(nmol)) %>% 
+  mutate(rank_pc = rank(pc)) %>% 
+  filter(metabolite %in% pc_metabs$metabolite) %>% 
+  ggscatter(x = "nmol", y = "pc", 
+            add = "reg.line", conf.int = TRUE, 
+            cor.coef = TRUE, cor.method = "spearman",
+            xlab = "nmol", ylab = "pc", color = "treatment",
+            palette = c(C = "plum2", ZF = "mediumpurple3", ZL = "darkslategray2", 
+                        ZH = "lightseagreen",
+                        LL = "gold", LH = "lightcoral",
+                        RL = "orange", RH = "brown3")) + 
+  facet_wrap(~metabolite, scales = "free")
+
+peri %>%
+  group_by(metabolite) %>%
+  filter(metabolite %in% pc_metabs$metabolite) %>%
+  distinct(nmol, .keep_all = TRUE) %>% 
+  distinct(pc, .keep_all = TRUE) %>% 
+  summarize(spear_val=cor(pc, nmol, method="spearman", use = "pairwise"),
+            pear_val=cor(pc, nmol, method="pearson", use = "pairwise"),
+            rank_pear=cor(rank(pc), rank(nmol), method="pearson"),
+            rank_spear=cor(rank(pc), rank(nmol), method="spearman"))
+
+sulfur <- metab_groups %>% 
+  filter(metab_type == "Sulfur")
+
+peri %>% 
+  filter(metabolite %in% sulfur$metabolite) %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = factor(date), y = nmol_per_pc, color = treatment)) + 
+  facet_wrap(~metabolite, scales = "free") + 
+  theme_bw()
+
+
+sugar <- metab_groups %>% 
+  filter(metab_type == "Sugar")
+
+peri %>% 
+  filter(metabolite %in% sugar$metabolite) %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = factor(date), y = nmol_per_pc, color = treatment)) + 
+  facet_wrap(~metabolite, scales = "free") + 
+  theme_bw()

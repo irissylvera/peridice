@@ -25,6 +25,10 @@ diatom_metabs <- data.frame(metabolite = c("Sarcosine", "Choline", "L-Cysteine",
                             spec = "diatom",
                             type = "phytoplankton")
 
+diatom_metabs <- data.frame(metabolite = c("L-Ornithine", "Homarine", "Trigonelline", ""),
+                            spec = "diatom",
+                            type = "phytoplankton")
+
 dino_metabs <- data.frame(metabolite = c("4-Aminobutyric acid", "Arsenobetaine",
                                          "Gonyol"),
                           spec = "dino",
@@ -40,7 +44,7 @@ peri %>%
   geom_col(aes(x = factor(date), y = nmol, fill = metabolite), position = "stack") + 
   facet_wrap(~treatment) + 
   theme_bw() + 
-  ggtitle("phytos")
+  ggtitle("diatoms")
 
 phospho <- data.frame(metabolite = c("Glycerophosphocholine", "Choline", "Phosphocholine"))
 
@@ -51,5 +55,23 @@ peri %>%
   geom_boxplot(aes(x = factor(treatment, levels = c("RH", "LH", "RL", "LL", "ZH", "ZF", "ZL", "C")), 
                    y = nmol, fill = metabolite)) + 
   facet_wrap(~date, scales = "free") + 
+  theme_bw() + 
+  ggtitle("phytos")
+
+sulfur <- metab_groups %>% 
+  filter(metab_type == "Sulfur")
+
+non_phospho <- metab_groups %>% 
+  filter(!str_detect(emp_form, "P"))
+
+peri %>% 
+  filter(metabolite %in% non_phospho$metabolite) %>%
+  group_by(metabolite, treatment, date, triplicate) %>% 
+  mutate(nmol = sum(nmol)) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = factor(treatment, levels = c("RH", "LH", "RL", "LL", "ZH", "ZF", "ZL", "C")), 
+                   y = nmol_per_pc)) + 
+  facet_grid(~metabolite~date, scales = "free") + 
   theme_bw() + 
   ggtitle("phytos")
