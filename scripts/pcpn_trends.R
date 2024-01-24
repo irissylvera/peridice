@@ -38,24 +38,35 @@ peri %>%
 pcpn %>%  
   filter(!str_detect(treatment, "Tote")) %>% 
   group_by(triplicate, treatment, date) %>%  
-  ggplot(aes(x = date, y = pc, group = interaction(treatment, triplicate), color = treatment)) +
+  ggplot(aes(x = date, y = pc, 
+             group = interaction(treatment, triplicate), 
+             color = factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")
+  ))) +
+  scale_color_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
+                                                    "lightseagreen", "gold", "lightcoral",
+                                                    "orange", "brown3")) + 
   geom_line() + 
   geom_point() + 
-  facet_wrap(~treatment) + 
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), ncol = 4) + 
   theme_bw() +  
   ylab("Particulate Carbon") + 
   xlab("Date")
-
 #### Observations: RH RL Lh all grow consistently, LL doesn't have significant change
 
 ## pn 
 pcpn %>%  
   filter(!str_detect(treatment, "Tote")) %>% 
   group_by(triplicate, treatment, date) %>%  
-  ggplot(aes(x = date, y = pn, group = interaction(treatment, triplicate), color = treatment)) +
+  ggplot(aes(x = date, y = pn, 
+             group = interaction(treatment, triplicate), 
+             color = factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")
+             ))) +
+  scale_color_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
+                                                    "lightseagreen", "gold", "lightcoral",
+                                                    "orange", "brown3")) + 
   geom_line() + 
   geom_point() + 
-  facet_wrap(~treatment) + 
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), ncol = 4) + 
   theme_bw() +  
   ylab("Particulate Nitrogen") + 
   xlab("Date")
@@ -63,10 +74,16 @@ pcpn %>%
 pcpn %>%  
   filter(!str_detect(treatment, "Tote")) %>% 
   group_by(triplicate, treatment, date) %>%  
-  ggplot(aes(x = date, y = cn, group = interaction(treatment, triplicate), color = treatment)) +
+  ggplot(aes(x = date, y = cn, 
+             group = interaction(treatment, triplicate), 
+             color = factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")
+             ))) +
+  scale_color_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
+                                                    "lightseagreen", "gold", "lightcoral",
+                                                    "orange", "brown3")) + 
   geom_line() + 
   geom_point() + 
-  facet_wrap(~treatment) + 
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), ncol = 4) + 
   theme_bw() +  
   ylab("C:N Ratio") + 
   xlab("Date")

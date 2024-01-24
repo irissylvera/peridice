@@ -6,6 +6,7 @@ library(readxl)
 # load in data
 ## peridice
 peri <- read_csv("PERIDICE_metabolite_data.csv")
+
 ## pcpn data
 pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
   select(tank = Tank, treatment = Treatment2, date = Date, pn = `PN (uM)`, 
@@ -16,6 +17,11 @@ pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>%
   mutate(mean_pc = mean(pc)) %>% 
   distinct(mean_pc, .keep_all = TRUE) %>% 
   mutate(replicate = paste0("230616_Smp_", ""))
+
+metab_groups <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+  stringsAsFactors = FALSE, header = TRUE) %>% 
+  select(metabolite = Compound_Name, emp_form = Empirical_Formula, metab_type = Compound_Type)
 
 diatom_metabs <- data.frame(metabolite = c("Sarcosine", "Choline", "L-Cysteine",
                                            "Hydroxyproline",  "L-Ornithine","Trigonelline", "Betonicine", 
@@ -39,9 +45,9 @@ phyto_metabs <- diatom_metabs %>%
 
 peri %>% 
   filter(metabolite %in% diatom_metabs$metabolite) %>%
-  filter(nmol <= 10) %>% 
+  filter(nmol <= 1) %>% 
   ggplot() +
-  geom_col(aes(x = factor(date), y = nmol, fill = metabolite), position = "stack") + 
+  geom_boxplot(aes(x = factor(date), y = nmol, color = metabolite)) + 
   facet_wrap(~treatment) + 
   theme_bw() + 
   ggtitle("diatoms")
