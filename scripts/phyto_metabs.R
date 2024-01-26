@@ -5,7 +5,10 @@ library(readxl)
 
 # load in data
 ## peridice
-peri <- read_csv("PERIDICE_metabolite_data.csv")
+peri <- read_csv("PERIDICE_metabolite_data.csv") %>% 
+  group_by(treatment, date, triplicate) %>% 
+  mutate(bulk_metab = sum(nmol)) %>% 
+  mutate(nmol_per_bulk = nmol/bulk_metab)
 
 ## pcpn data
 pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
@@ -45,39 +48,44 @@ phyto_metabs <- diatom_metabs %>%
 
 peri %>% 
   filter(metabolite %in% diatom_metabs$metabolite) %>%
-  filter(nmol <= 1) %>% 
-  ggplot() +
-  geom_boxplot(aes(x = factor(date), y = nmol, color = metabolite)) + 
-  facet_wrap(~treatment) + 
-  theme_bw() + 
-  ggtitle("diatoms")
-
-phospho <- data.frame(metabolite = c("Glycerophosphocholine", "Choline", "Phosphocholine"))
-
-peri %>% 
-  filter(str_detect(metabolite, "Glycerophosphocholine")) %>%
-  # mutate(trend = ifelse(treatment %in% c("LH|LL|ZL" > "RH|RL|ZH"),"red","blue")) %>% 
-  ggplot() +
-  geom_boxplot(aes(x = factor(treatment, levels = c("RH", "LH", "RL", "LL", "ZH", "ZF", "ZL", "C")), 
-                   y = nmol, fill = metabolite)) + 
-  facet_wrap(~date, scales = "free") + 
-  theme_bw() + 
-  ggtitle("phytos")
-
-sulfur <- metab_groups %>% 
-  filter(metab_type == "Sulfur")
-
-non_phospho <- metab_groups %>% 
-  filter(!str_detect(emp_form, "P"))
-
-peri %>% 
-  filter(metabolite %in% non_phospho$metabolite) %>%
-  group_by(metabolite, treatment, date, triplicate) %>% 
-  mutate(nmol = sum(nmol)) %>% 
+  # filter(metabolite == "Glycerophosphocholine") %>% 
+  # filter(nmol <= 1) %>% 
   filter(!str_detect(treatment, "Tote")) %>% 
   ggplot() +
-  geom_boxplot(aes(x = factor(treatment, levels = c("RH", "LH", "RL", "LL", "ZH", "ZF", "ZL", "C")), 
-                   y = nmol_per_pc)) + 
-  facet_grid(~metabolite~date, scales = "free") + 
+  geom_boxplot(aes(x = factor(date), 
+                   y = nmol_per_bulk, 
+                   color = factor(treatment, 
+                                  levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))) + 
+  scale_color_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
+                                                    "lightseagreen", "gold", "lightcoral",
+                                                    "orange", "brown3")) + 
+  facet_wrap(~metabolite, scales = "free") + 
+  theme_bw()
+
+peri %>% 
+  filter(metabolite %in% dino_metabs$metabolite) %>%
+  # filter(!str_detect(metabolite, "L-Ornithine|Sarcosine")) %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  distinct(nmol, .keep_all = TRUE) %>% 
+  # filter(nmol <= 1) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+                   y = nmol_per_bulk, color = metabolite)) + 
+  facet_wrap(~date, scales = "free") + 
   theme_bw() + 
-  ggtitle("phytos")
+  ggtitle("diatom")
+
+# Betonicine, Butyrylcarnitine, Choline, Glycerophosphocholine, 
+# Homarine, L-Ornithine, Sarcosine, Trigonelline
+
+peri %>% 
+  filter(metabolite == "Arsenobetaine") %>% 
+  filter(!str_detect(treatment, "Tote")) %>% 
+  ggplot() + 
+  geom_boxplot(aes(x = factor(treatment, levels = c("Tote", "C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+                   y = nmol_per_bulk)) + 
+  facet_wrap(~date) + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
+  ggtitle("Arsenobetaine") + 
+  xlab("Treatment") + 
+  theme_bw()

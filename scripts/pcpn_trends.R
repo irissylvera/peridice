@@ -89,60 +89,7 @@ pcpn %>%
   xlab("Date")
 
 #### Observations: RH and LH consistently grow with particulate N
-#### this goes into why do all of the Zs have no PN accumulation? What's happening in those systems?
 
-# Correlation
-## use k means? cluster that follows pc trend or pn trend?
-
-## k means
-peri_km <- peri %>% 
-  filter(!str_detect(metabolite, "Amino hydroxypropanesulfonate")) %>% 
-  ungroup() %>% 
-  distinct(nmol, .keep_all = TRUE) %>% 
-  select(metabolite, nmol, filename)  %>% 
-  pivot_wider(names_from = metabolite, values_from = nmol) %>% 
-  column_to_rownames("filename") %>% 
-  data.matrix() %>%
-  `[<-`(is.na(.), 0) %>%
-  scale() %>%
-  t() %>%
-  kmeans(centers = 10) %>% 
-  pluck("cluster") %>%
-  as.data.frame() %>%
-  set_names("cluster") %>%
-  rownames_to_column("metabolite")
-
-peri_cluster <- peri %>% 
-  left_join(peri_km, by = c("metabolite")) %>% 
-  mutate(cluster = factor(cluster)) %>% 
-  na.omit()
-
-## compare to PC
-peri_cluster %>% 
-  group_by(cluster, treatment, date) %>% 
-  mutate(nmol = mean(nmol)) %>% 
-  ggplot() + 
-  geom_line(aes(x = date, y = nmol, color = cluster)) + 
-  facet_wrap(~treatment, scales = "free")+
-  theme_bw()
-
-peri_cluster %>% 
-  filter(cluster == 2) %>% 
-  group_by(metabolite, treatment, date) %>% 
-  mutate(nmol = mean(nmol)) %>% 
-  ggplot() + 
-  geom_line(aes(x = date, y = nmol, color = metabolite)) + 
-  facet_wrap(~treatment)+
-  theme_bw()
-
-peri_cluster %>% 
-  group_by(metabolite, treatment, date) %>% 
-  mutate(nmol = mean(nmol)) %>% 
-  distinct(nmol, .keep_all = TRUE) %>% 
-  ggplot() + 
-  geom_line(aes(x = factor(date), y = nmol, group = metabolite, color = metabolite)) + 
-  facet_wrap(~treatment)+
-  theme_bw() 
 
 peri %>% 
   ggplot() + 
@@ -172,9 +119,8 @@ peri %>%
   facet_wrap(~metabolite, scales = "free")
 
 pn_metabs <- data.frame(metabolite = c("2-O-alpha-D-Glucosylglycerol",
-                                       " Dimethylsulfoniopropionate",
-                                       "L-Alanine", "L-Aspartic acid",
-                                       "L-Glutamine", "L-Leucine"))
+                                       "Dimethylsulfoniopropionate",
+                                       "L-Alanine", "L-Glutamine"))
 
 peri %>% 
   filter(metabolite %in% pn_metabs$metabolite) %>% 
@@ -186,14 +132,14 @@ peri %>%
 peri %>% 
   group_by(metabolite) %>% 
   distinct(nmol, .keep_all = TRUE) %>% 
-  distinct(pc, .keep_all = TRUE) %>% 
+  distinct(pn, .keep_all = TRUE) %>% 
   mutate(rank_nmol = rank(nmol)) %>% 
-  mutate(rank_pc = rank(pc)) %>% 
-  filter(metabolite %in% pc_metabs$metabolite) %>% 
-  ggscatter(x = "nmol", y = "pc", 
+  mutate(rank_pn = rank(pn)) %>% 
+  filter(metabolite %in% pn_metabs$metabolite) %>% 
+  ggscatter(x = "nmol", y = "pn", 
             add = "reg.line", conf.int = TRUE, 
-            cor.coef = TRUE, cor.method = "spearman",
-            xlab = "nmol", ylab = "pc", color = "treatment",
+            cor.coef = TRUE, cor.method = "pearson",
+            xlab = "nmol", ylab = "pn", color = "treatment",
             palette = c(C = "plum2", ZF = "mediumpurple3", ZL = "darkslategray2", 
                         ZH = "lightseagreen",
                         LL = "gold", LH = "lightcoral",
