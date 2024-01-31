@@ -63,17 +63,16 @@ peri_corr %>%
 
 
 peri_corr %>% 
+  group_by(treatment, date) %>% 
   mutate(metab_perc = nmol_per_bulk/pc) %>% 
   filter(!str_detect(treatment, "Tote")) %>%
-  filter(spear_val > 0.5) %>% 
+  # filter(spear_val > 0.5) %>% 
   ggplot() + 
-  geom_col(aes(x = metab_perc, 
-                 y = pc, 
-                 color = factor(treatment, 
+  geom_histogram(aes(x = metab_perc, 
+                 fill = factor(treatment, 
                                 levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))) + 
-  scale_color_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
+  scale_fill_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
                                                     "lightseagreen", "gold", "lightcoral",
                                                     "orange", "brown3")) + 
   xlab("Bulk Metabolite Concentration (nmol)") + 
-  ylab("Particulate Organic Carbon (umol)") + 
   theme_bw()

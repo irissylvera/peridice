@@ -15,10 +15,16 @@ pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>%
          pc = `PC (uM)`, cn = Cnratio,added_N_uM = AddN) %>% 
   mutate(triplicate = str_extract(tank, "\\d")) %>% 
   mutate(tank = str_remove (tank, "1/2|1/3|2/2"))  %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
   group_by(tank, date) %>% 
-  mutate(mean_pc = mean(pc)) %>% 
-  distinct(mean_pc, .keep_all = TRUE) %>% 
-  mutate(replicate = paste0("230616_Smp_", ""))
+  mutate(pc = mean(pc)) %>% 
+  distinct(pc, .keep_all=TRUE)
+  # mutate(replicate = paste0("230616_Smp_", treatment))
+
+peri_pcpn <- peri %>% 
+  select(metabolite, filename, treatment, date, nmol, triplicate) %>% 
+  mutate(triplicate = str_extract(filename, "(?<=Tote)\\d|\\d$")) %>% 
+  left_join(pcpn, by = c("treatment", "date", "triplicate"))
 
 # plot general metab trends
 peri %>% 

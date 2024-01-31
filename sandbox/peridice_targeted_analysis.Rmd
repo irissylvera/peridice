@@ -12,20 +12,22 @@ library(tidyverse)
 library(ggplot2)
 library(readxl)
 library(RColorBrewer)
-library(vegan)
+# library(vegan)
 ```
 
 ## Data
 raw peak list, ingalls standards, filtration and pcpn data
 ```{r}
 # raw peak list
-peak_list_neg <- read_csv('csvs/neg_results_final.csv') %>% 
-  mutate(Protein = str_replace(Protein, "HILIC_Neg_Standards", "HILIC")) %>% 
-  rename(column = Protein) %>% 
-  rename(metabolite = Peptide) %>% 
-  mutate(replicate_name = str_extract(Replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
-  mutate(timepoint = str_extract(Replicate, "27June|30June|14July|21July|27July")) %>%
-  rename(replicate = Replicate) %>% 
+peak_list_neg <- read_csv('../csvs/neg_transition_reuslts.csv') %>% 
+  mutate(`Molecule List Name` = str_replace(`Molecule List Name`,
+                                            "HILIC_Neg_Standards", 
+                                            "HILIC")) %>% 
+  rename(column = `Molecule List Name`) %>% 
+  rename(metabolite = Molecule) %>% 
+  mutate(replicate_name = str_extract(`Replicate Name`, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_extract(`Replicate Name`, "27June|30June|14July|21July|27July")) %>%
+  rename(replicate = `Replicate Name`) %>% 
   rename(area = Area) %>% 
   rename(background = Background) %>% 
   rename(precursor_mz = `Precursor Mz`) %>%
@@ -40,14 +42,16 @@ peak_list_neg <- read_csv('csvs/neg_results_final.csv') %>%
   select(-c(precursor_charge, frag_ion, peak_rank)) %>%
   mutate(rt = as.numeric(as.factor(rt)))
 
-peak_list_pos <- read_csv('csvs/pos_results_final.csv') %>% 
-  mutate(Protein = str_replace(Protein, "HILIC_Pos_Standards", "HILIC")) %>% 
+peak_list_pos <- read_csv('../csvs/targeted_peak_list.csv') %>% 
+  mutate(Protein = str_replace(Protein,
+                                            "HILIC_Pos_Standards", 
+                                            "HILIC")) %>% 
   rename(column = Protein) %>% 
   rename(metabolite = Peptide) %>% 
   mutate(replicate_name = str_extract(Replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
-  mutate(timepoint = str_extract(Replicate, "27June|30June|14July|21July|27July")) %>%
-  rename(replicate = Replicate) %>% 
+  mutate(timepoint = str_extract(Replicate, "27June|30June|14July|21July|27July")) %>% 
   rename(area = Area) %>% 
+  rename(replicate = Replicate) %>% 
   rename(background = Background) %>% 
   rename(precursor_mz = `Precursor Mz`) %>%
   rename(precursor_charge = `Precursor Charge`) %>%
@@ -60,9 +64,24 @@ peak_list_pos <- read_csv('csvs/pos_results_final.csv') %>%
   mutate(num_background = as.numeric(background)) %>% 
   select(-c(precursor_charge, frag_ion, peak_rank)) %>%
   mutate(rt = as.numeric(as.factor(rt)))
+
+# sucrose <- peak_list_neg %>% 
+#   filter(str_detect(metabolite, "Sucrose")) %>% 
+#   filter(str_detect(replicate, "27July-RH_1|Poo|Mix|H2O"))
+# 
+# # bmised area
+# sucrose_is <- peak_list_neg %>% 
+#   na.omit() %>% 
+#   filter(str_detect(metabolite, "Sucrose, 13C")) %>% 
+#   mutate(mean_area = mean(num_area))
+
+# rf ratio = 3628660
 
 peak_list <- peak_list_neg %>% 
-  rbind(peak_list_pos)
+  rbind(peak_list_pos) %>% 
+  drop_na(num_area)
+
+## peak_list <- peak_list_pos
 
 # standards
 ingalls_standards <- read.csv(
@@ -81,7 +100,7 @@ ingalls_standards <- read.csv(
   select(-c(HILIC_Mix, Compound_Type, Empirical_Formula))
 
 #filt data 
-filt_data <- read_csv("csvs/filt_data.csv") %>% 
+filt_data <- read_csv("../csvs/filt_data.csv") %>% 
   mutate(timepoint = str_replace_all(timepoint, "14July", "7-14-22")) %>% 
   mutate(timepoint = str_replace_all(timepoint, "21July", "7-21-22")) %>% 
   mutate(timepoint = str_replace_all(timepoint, "30June", "6-30-22")) %>% 
@@ -91,14 +110,21 @@ filt_data <- read_csv("csvs/filt_data.csv") %>%
   select(-c("timepoint", "samp_type"))
 
 # pcpn
-pcpn <- read_xlsx("metadata/peridice_pcpn.xlsx") %>% 
+pcpn <- read_xlsx("../metadata/peridice_pcpn.xlsx") %>% 
   select(Tank, Treatment2, Date, `PN (uM)`, `PC (uM)`, Cnratio, AccN, AccC, AddNn, AddN) %>% 
   rename(tank = Tank, treatment = Treatment2, date = Date, pn_um = `PN (uM)`, pc_um = `PC (uM)`, cn_ratio = Cnratio, 
          acc_n = AccN, acc_c = AccC, add_nn = AddNn, add_n = AddN) %>% 
   mutate(tank = str_remove(tank, "/(2|3)")) %>% 
   mutate(replicate = str_extract(tank, "\\d$")) %>% 
   mutate(replicate = as.numeric(replicate)) %>% 
-  select(-c("tank"))
+  select(-c("tank")) %>% 
+  group_by(treatment, date, replicate) %>% 
+  mutate(pc_um = mean(pc_um)) %>% 
+  mutate(pn_um = mean(pn_um)) %>% 
+  mutate(cn_ratio = mean(cn_ratio)) %>% 
+  mutate(acc_c = mean(acc_c)) %>% 
+  mutate(acc_n = mean(acc_n)) %>% 
+  distinct()
 
 # add_n is nitrate add_nn is nitrate_nitrite
 
@@ -108,7 +134,8 @@ metadata_targ <- filt_data %>%
   na.omit() %>% 
   select(-c("replicate")) %>% 
   rename(replicate = filename) %>% 
-  mutate(replicate = str_remove(replicate, ".mzML"))
+  mutate(replicate = str_remove(replicate, ".mzML")) %>% 
+  distinct()
 
 metadataframe <- peak_list %>%
   # Grab just the unique filenames and rename the column
@@ -126,7 +153,7 @@ metadataframe <- peak_list %>%
   mutate(samp_type=str_extract(filename, "Blk|Smp|Std|Poo")) %>%
   #mutate(treatment=ifelse(samp_type=="Poo", NA, treatment)) %>% 
   mutate(colid = levels(treatment)) %>% 
-  group_by(timepoint, treatment, replicate)
+  distinct()
 
 # parameters
 area_min   <- 1 # peak area minimum - calculated from peak intensity of chromatogram
@@ -138,9 +165,10 @@ sn_min     <- 4 # signal to noise ratio minimum
 # Quality Control
 ```{r}
 peak_data_qc <- peak_list %>% 
+  ungroup() %>% 
+  distinct() %>% 
   mutate(replicate = str_remove(replicate, "230616_")) %>% 
   left_join(metadata_targ, by = c("replicate")) %>% 
-  na.omit() %>% 
   mutate(area_per_pc = num_area/pc_um)
 ```
 
@@ -475,8 +503,8 @@ quant_data %>%
   theme_bw()
   
   
-write.csv(quant_data, file = "csvs/quant_data.csv", row.names = FALSE)
-write.csv(metadataframe, file = "csvs/metadataframe.csv", row.names = FALSE)
+write.csv(quant_data, file = "../csvs/quant_data.csv", row.names = FALSE)
+write.csv(metadataframe, file = "../csvs/metadataframe.csv", row.names = FALSE)
 ```
 
 # Quantified Visualizations
