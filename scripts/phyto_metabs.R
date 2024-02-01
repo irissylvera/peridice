@@ -89,3 +89,18 @@ peri %>%
   ggtitle("Arsenobetaine") + 
   xlab("Treatment") + 
   theme_bw()
+
+peri %>% 
+  mutate(ratio = str_extract(treatment, "H$|L$|C|Tote")) %>% 
+  mutate(rate = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
+  filter(metabolite %in% phyto_metabs$metabolite) %>%
+  # filter(treatment == "RH") %>% 
+  filter(metabolite != "Sarcosine") %>% 
+  # filter(str_detect(filename, "Tote|30June|27July")) %>% 
+  # filter(treatment != "ZF") %>% 
+  ggplot() + 
+  geom_col(aes(x = factor(treatment, 
+                          levels = c("Tote", "C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+               y = nmol_per_bulk, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) +
+  facet_wrap(~date)

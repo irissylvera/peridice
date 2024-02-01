@@ -28,17 +28,17 @@ metab_groups <- read.csv(
 
 
 aas <- metab_groups %>% 
-  filter(metab_type == "Amino Acid") %>% 
+  # filter(metab_type == "Amino Acid") %>% 
   filter(metabolite == "L-Alanine" | metabolite == "L-Proline" | metabolite == "L-Threonine" | 
            metabolite == "L-Leucine" | metabolite == "L-Asparagine" | metabolite == "L-Glutamine" |
            metabolite=="L-Methionine"|metabolite=="L-Histidine"|metabolite=="L-Arginine"|metabolite=="L-Tyrosine")
 # different trends: "L-Aspartic acid"
 
 peri %>% 
-  filter(metabolite %in% aas$metabolite) %>% 
+  # filter(metabolite %in% aas$metabolite) %>% 
   filter(!str_detect(treatment, "Tote")) %>% 
   distinct(nmol, .keep_all = TRUE) %>% 
-  filter(metabolite == "L-Tyrosine") %>% 
+  filter(metabolite == "L-Glutamic acid") %>% 
   # filter(nmol <= 1) %>% 
   ggplot() + 
   geom_boxplot(aes(x = factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 

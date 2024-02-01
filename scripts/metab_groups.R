@@ -47,6 +47,9 @@ groups_of_int <- data.frame(metab_type = c("Amino Acid", "Amino Acid - degraded"
 nb.cols <- 10
 mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
 
+sulf <- metab_groups %>% 
+  filter(metab_type=="Sulfur")
+
 peri_groups %>% 
   filter(str_detect(metab_type, "Amino Acid")) %>% 
   filter(metab_type != "Amino Acid") %>% 
@@ -68,8 +71,26 @@ peri_groups %>%
   filter(str_detect(filename, "Tote|30June|27July")) %>% 
   filter(treatment != "ZF") %>% 
   ggplot() + 
-  geom_col(aes(x = factor(treatment, levels = c("Tote", "C", "ZL", "ZH", "LL", "LH", "RL", "RH")), 
-               y = nmol_per_bulk, fill = metab_type), position = "stack") +
+  geom_col(aes(x = factor(treatment, 
+                          levels = c("Tote", "C", "ZL", "ZH", "LL", "LH", "RL", "RH")), 
+               y = nmol_per_bulk, fill = metab_type), position = "fill") +
   scale_fill_manual(values = mycolors) +
   facet_wrap(~date)
+
+peri_groups %>% 
+  filter(metab_type == "Sulfur") %>% 
+  mutate(ratio = str_extract(treatment, "H$|L$|C|Tote")) %>% 
+  mutate(rate = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
+  # filter(metab_type %in% groups_of_int$metab_type) %>% 
+  # filter(treatment == "RH") %>% 
+  filter(str_detect(filename, "Tote|30June|27July")) %>% 
+  filter(treatment != "ZF") %>% 
+  ggplot() + 
+  geom_col(aes(x = factor(treatment, 
+                          levels = c("Tote", "C", "ZL", "ZH", "LL", "LH", "RL", "RH")), 
+               y = nmol_per_bulk, fill = metabolite), position = "fill") +
+  scale_fill_manual(values = mycolors) +
+  facet_wrap(~date)
+
+# sulfur metabs accumulating in RL because euks are blooming - make sulfur metabs
  
