@@ -47,32 +47,16 @@ peri_corr <- peri %>%
 
 peri_corr %>% 
   filter(!str_detect(treatment, "Tote")) %>% 
-  filter(spear_val > 0.5) %>% 
-  ggplot() + 
-  geom_point(aes(x = bulk_metab, 
-                 y = pc, 
-                 size = spear_val, 
-                 color = factor(treatment, 
-                                levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))) + 
+  # filter(spear_val > 0.5) %>% 
+  ggplot(aes(x = bulk_metab, 
+             y = pc)) + 
+  geom_point(aes(color = factor(treatment, 
+                                levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), size = spear_val)) + 
   scale_color_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
                                                     "lightseagreen", "gold", "lightcoral",
                                                     "orange", "brown3")) + 
+  geom_smooth(method = "lm", se = FALSE, color = "black") + 
   xlab("Bulk Metabolite Pool (nmol)") + 
   ylab("Particulate Organic Carbon (umol)") + 
   theme_bw()
 
-
-peri_corr %>% 
-  group_by(treatment, date) %>% 
-  mutate(metab_perc = nmol_per_bulk/pc) %>% 
-  filter(!str_detect(treatment, "Tote")) %>%
-  # filter(spear_val > 0.5) %>% 
-  ggplot() + 
-  geom_histogram(aes(x = metab_perc, 
-                 fill = factor(treatment, 
-                                levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))) + 
-  scale_fill_manual(name = "Treatment", values = c("plum2", "mediumpurple", "darkslategray2",
-                                                    "lightseagreen", "gold", "lightcoral",
-                                                    "orange", "brown3")) + 
-  xlab("Bulk Metabolite Concentration (nmol)") + 
-  theme_bw()

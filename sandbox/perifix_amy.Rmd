@@ -1,0 +1,763 @@
+---
+title: "peridice_targeted_analysis"
+author: "Iris Kern"
+date: "2023-08-08"
+output: html_document
+---
+
+# Setup
+## Libraries
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(RColorBrewer)
+```
+
+## Data
+raw peak list, ingalls standards, filtration and pcpn data
+```{r}
+# raw peak list
+# peak_list_neg <- read_csv('../csvs/neg_transition_reuslts.csv') %>% 
+#   mutate(`Molecule List Name` = str_replace(`Molecule List Name`,
+#                                             "HILIC_Neg_Standards", 
+#                                             "HILIC")) %>% 
+#   rename(column = `Molecule List Name`) %>% 
+#   rename(metabolite = Molecule) %>% 
+#   mutate(replicate_name = str_extract(`Replicate Name`, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+#   mutate(timepoint = str_extract(`Replicate Name`, "27June|30June|14July|21July|27July")) %>%
+#   rename(replicate = `Replicate Name`) %>% 
+#   rename(area = Area) %>% 
+#   rename(background = Background) %>% 
+#   rename(precursor_mz = `Precursor Mz`) %>%
+#   rename(precursor_charge = `Precursor Charge`) %>%
+#   rename(product_mz = `Product Mz`) %>%
+#   rename(product_charge = `Product Charge`) %>%
+#   rename(frag_ion = `Fragment Ion`) %>%
+#   rename(rt = `Retention Time`) %>%
+#   rename(peak_rank = `Peak Rank`) %>%
+#   mutate(num_area = as.numeric(area)) %>% 
+#   mutate(num_background = as.numeric(background)) %>% 
+#   select(-c(precursor_charge, frag_ion, peak_rank)) %>%
+#   mutate(rt = as.numeric(as.factor(rt)))
+
+peak_list_pos <- read_csv('Amy_version_Transition_Results.csv') %>% 
+  mutate(`Molecule List Name` = str_replace(`Molecule List Name`,
+                                            "HILIC_Pos_Standards", 
+                                            "HILIC")) %>% 
+  rename(column = `Molecule List Name`) %>% 
+  rename(metabolite = Molecule) %>% 
+  mutate(treatment = str_extract(`Replicate Name`, "Std|Poo|Blk|C|NPF|NF|N|PF|P|F|T0")) %>% 
+  mutate(timepoint = str_extract(`Replicate Name`, "T0|Tfinal")) %>% 
+  rename(area = Area) %>% 
+  rename(replicate = `Replicate Name`) %>% 
+  rename(background = Background) %>% 
+  rename(precursor_mz = `Precursor Mz`) %>%
+  rename(precursor_charge = `Precursor Charge`) %>%
+  rename(product_mz = `Product Mz`) %>%
+  rename(product_charge = `Product Charge`) %>%
+  rename(frag_ion = `Fragment Ion`) %>%
+  rename(rt = `Retention Time`) %>%
+  rename(peak_rank = `Peak Rank`) %>%
+  mutate(num_area = as.numeric(area)) %>% 
+  mutate(num_background = as.numeric(background)) %>% 
+  select(-c(precursor_charge, frag_ion, peak_rank)) %>%
+  mutate(rt = as.numeric(as.factor(rt)))
+
+# sucrose <- peak_list_neg %>% 
+#   filter(str_detect(metabolite, "Sucrose")) %>% 
+#   filter(str_detect(replicate, "27July-RH_1|Poo|Mix|H2O"))
+# 
+# # bmised area
+# sucrose_is <- peak_list_neg %>% 
+#   na.omit() %>% 
+#   filter(str_detect(metabolite, "Sucrose, 13C")) %>% 
+#   mutate(mean_area = mean(num_area))
+
+# rf ratio = 3628660
+
+# peak_list <- peak_list_neg %>% 
+#   rbind(peak_list_pos) %>% 
+#   drop_na(num_area)
+
+peak_list <- peak_list_pos
+
+# standards
+ingalls_standards <- read.csv(
+  "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                              stringsAsFactors = FALSE, header = TRUE) %>%
+  # filter(Column == Column.Type) %>%
+  rename(internal_standards = Compound_Name) %>%
+  select(internal_standards, Compound_Type, Concentration_uM, HILIC_Mix, Empirical_Formula) %>% #QE.RF.ratio
+  filter(!is.na(Concentration_uM)) %>%
+  filter(Compound_Type == "Internal Standard") %>%
+  mutate(conc_nm = Concentration_uM * 1000) %>%
+  select(-c(Concentration_uM)) %>%
+  # rename(internal_standards = Metabolite.Name) %>%
+  mutate(matched_cmpds = internal_standards) %>% 
+  mutate(matched_cmpds = str_remove(matched_cmpds, ",.*")) %>% 
+  select(-c(HILIC_Mix, Compound_Type, Empirical_Formula))
+
+#filt data 
+# filt_data <- read_csv("../csvs/filt_data.csv") %>% 
+#   mutate(timepoint = str_replace_all(timepoint, "14July", "7-14-22")) %>% 
+#   mutate(timepoint = str_replace_all(timepoint, "21July", "7-21-22")) %>% 
+#   mutate(timepoint = str_replace_all(timepoint, "30June", "6-30-22")) %>% 
+#   mutate(timepoint = str_replace_all(timepoint, "27July", "7-27-22")) %>% 
+#   mutate(timepoint = str_replace_all(timepoint, "27June", "6-27-22")) %>% 
+#   mutate(date = as.Date(timepoint, format = "%m-%d-%y")) %>% 
+#   select(-c("timepoint", "samp_type"))
+
+# pcpn
+# pcpn <- read_xlsx("../metadata/peridice_pcpn.xlsx") %>% 
+#   select(Tank, Treatment2, Date, `PN (uM)`, `PC (uM)`, Cnratio, AccN, AccC, AddNn, AddN) %>% 
+#   rename(tank = Tank, treatment = Treatment2, date = Date, pn_um = `PN (uM)`, pc_um = `PC (uM)`, cn_ratio = Cnratio, 
+#          acc_n = AccN, acc_c = AccC, add_nn = AddNn, add_n = AddN) %>% 
+#   mutate(tank = str_remove(tank, "/(2|3)")) %>% 
+#   mutate(replicate = str_extract(tank, "\\d$")) %>% 
+#   mutate(replicate = as.numeric(replicate)) %>% 
+#   select(-c("tank")) %>% 
+#   group_by(treatment, date, replicate) %>% 
+#   mutate(pc_um = mean(pc_um)) %>% 
+#   mutate(pn_um = mean(pn_um)) %>% 
+#   mutate(cn_ratio = mean(cn_ratio)) %>% 
+#   mutate(acc_c = mean(acc_c)) %>% 
+#   mutate(acc_n = mean(acc_n)) %>% 
+#   distinct()
+
+# add_n is nitrate add_nn is nitrate_nitrite
+
+# setup metadata
+metadata_targ <- filt_data %>% 
+  left_join(pcpn, by = c("date", "replicate", "treatment")) %>% 
+  na.omit() %>% 
+  select(-c("replicate")) %>% 
+  rename(replicate = filename) %>% 
+  mutate(replicate = str_remove(replicate, ".mzML")) %>% 
+  distinct()
+
+metadataframe <- peak_list %>%
+  # Grab just the unique filenames and rename the column
+  distinct(replicate) %>% 
+  rename(filename = replicate) %>% 
+  mutate(filename = str_remove(filename, "230213_")) %>% 
+  # Extract treatment information from the filename
+  # Longest one needs to go first!")) %>%
+  # Create a new column with timepoint information
+  mutate(treatment = str_extract(filename, "Std|Poo|Blk|C|NPF|NF|N|PF|P|F|T0")) %>% 
+  mutate(timepoint=str_extract(filename, "T0|Tfinal")) %>%
+  mutate(replicate = str_extract(filename, "\\d$")) %>% 
+  mutate(replicate = str_remove(replicate, ".mzML")) %>% 
+  # Create a new column with sample type information
+  mutate(samp_type=str_extract(filename, "Blk|Smp|Std|Poo")) %>%
+  #mutate(treatment=ifelse(samp_type=="Poo", NA, treatment)) %>% 
+  mutate(colid = levels(treatment)) %>% 
+  distinct()
+
+# parameters
+area_min   <- 1 # peak area minimum - calculated from peak intensity of chromatogram
+rt_flex    <- 0.4 # retention time flexibility - accounts variance across matrices and time on machine
+blk_thresh <- 0.3 # blank sample threshold to calculate difference for samples
+sn_min     <- 4 # signal to noise ratio minimum
+```
+
+# Quality Control
+```{r}
+peak_data_qc <- peak_list %>% 
+  ungroup() %>% 
+  distinct() %>% 
+  mutate(replicate = str_remove(replicate_name, "230213_")) %>% 
+  left_join(metadata_targ, by = c("replicate")) %>% 
+  mutate(area_per_pc = num_area/pc_um)
+```
+
+
+# BMIS
+## setup
+```{r}
+# Need to find minimum and maximum retention time for each sample
+
+rt_table <- peak_list %>%
+  filter(str_detect(replicate, regex("Std", ignore_case = TRUE))) %>%
+  group_by(metabolite) %>%
+  mutate(rt_min = min(rt, na.rm = TRUE)) %>%
+  mutate(rt_max = max(rt, na.rm = TRUE)) %>%
+  mutate(rt_reference = mean(rt, na.rm = TRUE)) %>%
+  select(metabolite, rt_min, rt_max) %>%
+  unique()
+
+area_table <- peak_list %>%
+  select(replicate, metabolite, num_area) %>%
+  filter(str_detect(replicate, regex("Smp|Poo", ignore_case = TRUE)))
+
+sn_table <- peak_list %>%
+  filter(str_detect(replicate, regex("Smp|Poo", ignore_case = TRUE))) %>%
+  select(replicate, metabolite, num_area, num_background) %>%
+  mutate(signal_to_noise = (num_area / num_background))
+
+blank_table <- peak_list %>%
+    filter(str_detect(replicate, regex("Blk", ignore_case = TRUE))) %>%
+    select(metabolite, num_area) %>%
+    group_by(metabolite) %>% 
+    filter(num_area == max(num_area)) %>%
+    rename(blank_max = num_area) %>%
+    unique()
+```
+
+## add flags for retention time, area, blanks, signal to noise
+peak_list_all_flags
+```{r}
+peak_list_all_flags <- peak_list %>%
+  left_join(rt_table) %>%
+  mutate(rt_flag = ifelse((rt >= (rt_max + rt_flex) | rt <= (rt_min - rt_flex)), 
+                          "RT.Flag", NA)) %>%
+  left_join(blank_table) %>%
+  group_by(metabolite) %>%
+  mutate(blank_ref = num_area / blank_max) %>%
+  mutate(is_present = ifelse(str_detect(replicate, ","), "Internal Std", "Non IS")) %>%
+  mutate(blank_flag = ifelse(((is_present != "Internal Std") & ((num_area / blank_max) < blk_thresh)), 
+                             "blank.Flag", 
+                             ifelse(((is_present == "Internal Std") & ((num_area / blank_max) < blk_thresh)),
+                                    "IS.blank.Flag", NA))) %>%
+  mutate(area_min_flag = ifelse((num_area < area_min), "area_min_Flag", NA)) %>%
+  mutate(area_with_qc   = ifelse(is.na(area_min_flag), num_area, NA)) %>%
+  select(replicate:num_area, area_with_qc, everything()) %>%
+  left_join(sn_table) %>%
+  mutate(sn_flag = ifelse((signal_to_noise < sn_min), "sn_flag", NA)) %>% 
+  filter_at(vars(blank_flag, area_min_flag, sn_flag),all_vars(is.na(.))) %>% 
+  filter(!str_detect(area, "#N/A"))
+```
+
+## load in internal standards, generate qc_data, sampkey, and filtered out is areas vs non is areas
+```{r}
+internal_standards <- read.csv("https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
+                               stringsAsFactors = FALSE, header = TRUE) %>%
+  filter(Compound_Type == "Internal Standard")
+
+qc_data <- peak_list_all_flags %>% 
+  filter(!str_detect(replicate, "Blk|Std"))
+
+sampkey <- qc_data %>%
+  select(replicate) %>%
+  mutate(area_with_qc = ifelse(str_detect(replicate, "Half"), 0.5, 1.0)) %>%
+  mutate(metabolite = "Inj_vol")
+
+is_stds_data <- qc_data %>%
+  filter(metabolite %in% internal_standards$Compound_Name_Figure) %>%
+  select(replicate, metabolite, area_with_qc) 
+
+data_no_is <- qc_data %>%
+  filter(!metabolite %in% internal_standards$Compound_Name_Figure)
+
+is_stds_data <- rbind(is_stds_data, sampkey) %>%
+  separate(replicate, into = c("a", "RunType", "c", "d"), sep = "_", remove = FALSE)
+```
+
+## plot internal standard areas
+```{r}
+is_stds_data %>% 
+  # filter(RunType == "Poo") %>% 
+  ggplot() + 
+  geom_bar(aes(x = replicate, y = area_with_qc, color = RunType), stat = "identity", position = "dodge")  +
+  facet_wrap( ~metabolite, scales = "free_y") +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(size = 10),
+        legend.position = "top",
+        strip.text = element_text(size = 10)) +
+  ggtitle("Internal Standard Raw Areas") 
+```
+
+## load data with no internal standards and get is conc and area data for BMIS
+```{r}
+data_long <- data_no_is %>%
+  select(replicate, metabolite, area_with_qc) %>%
+  filter(str_detect(replicate, "Poo")) %>%
+  group_by(replicate) %>%
+  rename(poo_area = area_with_qc) %>% 
+  na.omit()
+
+is_areas <- is_stds_data %>%
+  filter(str_detect(replicate, "Poo")) %>%
+  mutate(area_with_qc = ifelse(str_detect(replicate, "Half"), area_with_qc*2, area_with_qc)) %>% 
+  filter(!str_detect(metabolite, "Inj_vol")) %>%
+  select(-c(metabolite, a, RunType, c, d)) %>%
+  group_by(replicate) %>%
+  rename(int_area = area_with_qc) %>% 
+  rename(internal_standard = metabolite) %>% 
+  group_by(internal_standard) %>% 
+  mutate(avg_is_area = mean(int_area))
+
+is_areas_smp <- is_stds_data %>%
+  filter(str_detect(replicate, "Smp")) %>%
+  mutate(area_with_qc = ifelse(str_detect(replicate, "Half"), area_with_qc*2, area_with_qc)) %>% 
+  filter(!str_detect(metabolite, "Inj_vol")) %>%
+  select(-c(metabolite, a, RunType, c, d)) %>%
+  group_by(replicate) %>%
+  rename(int_area = area_with_qc) %>% 
+  rename(internal_standard = metabolite) %>% 
+  group_by(internal_standard) %>% 
+  mutate(avg_is_area = mean(int_area))
+
+is_conc <- internal_standards %>% 
+  select(Compound_Name_Figure, Concentration_uM) %>% 
+  rename(internal_standard = Compound_Name_Figure) %>% 
+  rename(conc_um = Concentration_uM) %>% 
+  mutate(internal_standard = str_remove(internal_standard, ", .*")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, "D"))
+
+is_areas_inj_vol <- is_stds_data %>%
+  filter(str_detect(replicate, "Poo")) %>%
+  mutate(inj_vol = ifelse(str_detect(replicate, "Half"), 0.5, 1)) %>% 
+  # filter(!str_detect(metabolite, "Inj_vol")) %>%
+  select(-c(metabolite, a, RunType, c, d)) %>%
+  group_by(replicate) %>% 
+  rename(internal_standard = metabolite) %>% 
+  group_by(internal_standard) %>% 
+  filter(internal_standard != "Inj_vol")
+```
+
+## isotopologues 
+```{r}
+isologs <- data_no_is %>%
+  select(replicate, metabolite, area_with_qc) %>% 
+  left_join(is_areas_smp, by = c("replicate")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, ", .*")) %>% 
+  mutate(internal_standard = str_remove(internal_standard, "D")) %>% 
+  filter(metabolite %in% internal_standard) %>% 
+  mutate(replicate = str_remove(replicate, "230213_"))
+  # distinct(metabolite, .keep_all = TRUE)
+
+
+isologs_quant <- isologs %>% 
+  left_join(is_conc, by = c("internal_standard")) %>% 
+  # left_join(metadata_targ, by = c("replicate")) %>% 
+  filter(metabolite == internal_standard) %>% 
+ #  mutate(area_with_qc = area_with_qc / pc_um) %>% 
+  mutate(umol_per_vial = (area_with_qc/int_area)*conc_um) %>% 
+  mutate(umol_enviro = umol_per_vial*400*1e-6/2*1000) %>% 
+  select(replicate, metabolite, area_with_qc, umol_enviro) %>% 
+  mutate(nmol_enviro = umol_enviro*1000)
+```
+
+## visualization of isotopologue quantification
+```{r}
+colors <- c("C" = "plum2", "LH" = "lightcoral", "LL" = "gold", "RH" = "brown3", "RL" = "orange", "T0" = "grey50", 
+                              "ZF" = "mediumpurple", "ZH" = "lightseagreen", "ZL" = "darkslategray2")
+
+isologs_quant %>% 
+  filter(metabolite == "Trimethylamine N-oxide") %>% 
+  group_by(treatment, date, metabolite) %>% 
+  mutate(avg_umol_enviro = mean(umol_enviro)) %>% 
+  distinct(avg_umol_enviro, .keep_all = TRUE) %>% 
+  ggplot() + 
+  geom_line(aes(x = date, y = avg_umol_enviro, color = treatment)) + 
+  # scale_color_manual(values = colors) + 
+  theme_bw()
+
+isologs_quant %>% 
+  filter(metabolite == "Trimethylamine N-oxide") %>% 
+  group_by(treatment, date, metabolite) %>% 
+  mutate(avg_umol_enviro = mean(umol_enviro)) %>% 
+  distinct(avg_umol_enviro, .keep_all = TRUE) %>% 
+  ggplot() + 
+  geom_line(aes(x = date, y = avg_umol_enviro, color = treatment)) + 
+  scale_color_manual(values = colors) + 
+  theme_bw()
+```
+
+
+
+## RSDs of pooled
+```{r}
+rsd_data <- data_long %>%
+  mutate(rsd_og = sd(poo_area)/mean(poo_area)) %>% 
+  left_join(is_areas, by = c("replicate")) %>%
+  filter(!metabolite %in% isologs$metabolite) %>%
+  mutate(norm_area = poo_area/int_area*avg_is_area) %>%
+  group_by(metabolite, internal_standard) %>%
+  mutate(rsd = sd(norm_area)/mean(norm_area)) %>% 
+  group_by(metabolite, internal_standard) %>%
+  mutate(rsd_imp = (rsd_og - rsd)/rsd_og)
+
+poo_bmis <- rsd_data %>%
+  filter(rsd_imp > .4) %>%
+  arrange(desc(rsd_imp)) %>%
+  group_by(metabolite) %>%
+  slice(1) %>%
+  select(metabolite, internal_standard, rsd, int_area, avg_is_area) %>%
+  rename(bmis = internal_standard) %>% 
+  rename(rsd_poo = rsd)
+```
+
+## Sample BMIS
+```{r}
+sample_long <- data_no_is %>% 
+  select(replicate, metabolite, num_area) %>% 
+  filter(!str_detect(replicate, "Poo|Std")) %>% 
+  filter(!metabolite %in% isologs$metabolite) %>% 
+  left_join(poo_bmis) %>% 
+  na.omit() %>% 
+  mutate(norm_area = num_area/int_area*avg_is_area) %>%
+  group_by(metabolite, bmis) %>%
+  mutate(rsd = sd(norm_area)/mean(norm_area))
+
+sample_long %>% 
+  ggplot() +
+  geom_point(aes(x = rsd_poo, y = rsd)) + 
+  facet_wrap(~bmis)
+```
+
+# Quant
+response factor = peak_area/concentration (use standards in water)
+response factor ratio = rf(stdinmat) - rf(h20inmat) / rf(stdinh2o)
+umol in vial = area / (rf * rf ratio)
+umol in enviro = umol in vial * 400 uL * 10e^-6 / L filt * 1000 * dilution factor
+```{r}
+ingalls_stds_quant <- read_csv("https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv") %>% 
+  select(metabolite_name = Compound_Name_Figure, metabolite = Compound_Name, conc_um = Concentration_uM, 
+         empirical_formula = Empirical_Formula, z, ion_form = Ionization_Form, mix = HILIC_Mix) %>% 
+  # filter(z == 1) %>% 
+  na.omit()
+
+# filt_data_quant <- filt_data %>% 
+#   select(filename, vol_L_filt) %>% 
+#   rename(replicate = filename) %>% 
+#   mutate(replicate = str_remove(replicate, ".mzML"))
+
+adj_bmis_data <- sample_long %>% 
+  mutate(adj_peak_area = num_area/(int_area/avg_is_area)) %>% 
+  full_join(peak_list) %>% 
+  select(replicate, metabolite, bmis, adj_peak_area) %>% 
+  mutate(replicate = str_remove(replicate, "230616_"))
+ 
+rfs_mix1 <- peak_list %>% 
+  mutate(replicate = str_remove(replicate, "230213_")) %>% 
+  filter(str_detect(replicate, "Std")) %>% 
+  select(replicate, metabolite, num_area) %>% 
+  left_join(ingalls_stds_quant, by = c("metabolite")) %>% 
+  na.omit() %>% 
+  mutate(std_type = str_extract(replicate, "InH2O|InMatrix|H2OinMatrix_1|H2OinMatrix_2")) %>% 
+  group_by(metabolite, std_type) %>% 
+  filter(mix == "Mix1") %>% 
+  # filter(std_type == "H2OinMatrix_1") %>% 
+  filter(!str_detect(replicate, "Mix2")) %>% 
+  filter(!str_detect(std_type, "H2OinMatrix_2")) %>% 
+  # need to calculate RFs based on mix
+  reframe(mean_area = mean(num_area, na.rm = TRUE), conc_um = unique(conc_um)) %>% 
+  pivot_wider(names_from = std_type, values_from = mean_area) %>% 
+  mutate(rf_h2o = InH2O/conc_um) %>% 
+  mutate(rf_mat = (InMatrix - H2OinMatrix_1)/conc_um) %>% 
+  mutate(rf_ratio = rf_mat / rf_h2o) %>% 
+  na.omit() %>% 
+  rename(H2OinMatrix = H2OinMatrix_1)
+ 
+rfs_mix2 <- peak_list %>% 
+  mutate(replicate = str_remove(replicate, "230213_")) %>% 
+  filter(str_detect(replicate, "Std")) %>% 
+  select(replicate, metabolite, num_area) %>% 
+  left_join(ingalls_stds_quant, by = c("metabolite")) %>% 
+  na.omit() %>% 
+  mutate(std_type = str_extract(replicate, "InH2O|InMatrix|H2OinMatrix_1|H2OinMatrix_2")) %>% 
+  group_by(metabolite, std_type) %>% 
+  filter(mix == "Mix2") %>% 
+  filter(!str_detect(replicate, "Mix1")) %>% 
+  filter(!str_detect(std_type, "H2OinMatrix_1")) %>% 
+  # need to calculate RFs based on mix
+  reframe(mean_area = mean(num_area, na.rm = TRUE), conc_um = unique(conc_um)) %>% 
+  pivot_wider(names_from = std_type, values_from = mean_area) %>% 
+  mutate(rf_h2o = InH2O/conc_um) %>% 
+  mutate(rf_mat = (InMatrix - H2OinMatrix_2)/conc_um) %>% 
+  mutate(rf_ratio = rf_mat / rf_h2o) %>% 
+  na.omit() %>% 
+  rename(H2OinMatrix = H2OinMatrix_2)
+
+rfs <- rfs_mix1 %>% 
+  rbind(rfs_mix2)
+
+quant_data <- peak_list %>% 
+  mutate(replicate = str_remove(replicate, "230213_")) %>% 
+  left_join(adj_bmis_data) %>% 
+  mutate(real_area = ifelse(is.na(adj_peak_area), num_area, adj_peak_area)) %>% 
+  select(metabolite, replicate, bmis, real_area) %>% 
+  mutate(bmis = replace_na(bmis, "None")) %>% 
+  left_join(rfs) %>% 
+  select(metabolite, replicate, bmis, real_area, rf_h2o, rf_mat, rf_ratio) %>% 
+  mutate(uM = real_area/rf_h2o * 0.0004/2 * 1/rf_ratio) %>% 
+  mutate(nM = uM*1000) %>% 
+  ## need to left_join with filt_data
+  # mutate(umol_in_enviro = umol_in_vial * 400 * 10e-6/2) %>% 
+  na.omit() %>% 
+  filter(!metabolite %in% ingalls_standards$internal_standards) %>% 
+  filter(metabolite != "DL-Histidine, 15N") %>% 
+  filter(nM > 0) %>% 
+  filter(!str_detect(replicate, "Std")) %>% 
+  filter(metabolite != "Betonicine") %>% 
+  filter(metabolite != "Hydroxyisoleucine")
+  
+quant_data %>%
+  group_by(metabolite) %>%
+  mutate(mean_nm=mean(nM)) %>%
+  arrange(desc(mean_nm)) %>%
+  ungroup() %>% 
+  mutate(metabolite = fct_inorder(metabolite)) %>%
+  ggplot(aes(y = metabolite, x = nM)) +
+  geom_boxplot() +
+  theme_bw()
+  
+  
+write.csv(quant_data, file = "../csvs/quant_data.csv", row.names = FALSE)
+write.csv(metadataframe, file = "../csvs/metadataframe.csv", row.names = FALSE)
+```
+
+# Quantified Visualizations
+```{r}
+quant_data <- read_csv("csvs/quant_data.csv")
+
+nb.cols <- 55
+mycolors <- colorRampPalette(brewer.pal(8, "Set1"))(nb.cols)
+
+data_vis <- quant_data %>% 
+  mutate(treatment = str_extract(replicate, "Std|Poo|Blk|C|ZF|ZL|ZH|RL|RH|LL|LH|Tote")) %>% 
+  mutate(timepoint = str_extract(replicate, "27June|30June|14July|21July|27July")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "14July", "7-14-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "21July", "7-21-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "30June", "6-30-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27July", "7-27-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "27June", "6-27-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%m-%d-%y")) %>% 
+  select(metabolite, replicate, uM, nM, treatment, date) %>% 
+  na.omit() %>% 
+  filter(nM != "Inf")
+
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(nM >= 0.5) %>% 
+  ggplot() + 
+  geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "fill") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~date) + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw()
+
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(nM >= 0.5) %>% 
+  ggplot() + 
+  geom_col(aes(x = treatment, y = nmol_avg, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~date) + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw()
+
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(nM >= 0.5) %>% 
+  ggplot() + 
+  geom_col(aes(x = date, y = nmol_avg, fill = metabolite), position = "fill") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~treatment) + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw()
+
+data_vis %>% 
+  group_by(metabolite, treatment, date) %>% 
+  mutate(nmol_avg = mean(nM)) %>% 
+  distinct(nmol_avg, .keep_all = TRUE) %>% 
+  filter(nM >= 0.5) %>% 
+  ggplot() + 
+  geom_col(aes(x = date, y = nmol_avg, fill = metabolite), position = "stack") +
+  scale_fill_manual(values = mycolors) + 
+  facet_wrap(~treatment) + 
+  guides(fill=guide_legend(ncol=2)) + 
+  theme_bw()
+``` 
+
+
+# Stats
+```{r}
+set.seed(20)
+
+quant_nmds <- data_vis %>% 
+  arrange(desc(nM)) %>% 
+  group_by(metabolite, replicate) %>% 
+  slice(1) %>% 
+  group_by(metabolite, treatment, date) %>% 
+  summarise(avg_nmol = mean(nM)) %>% 
+  ungroup() %>% 
+  complete(metabolite, date, treatment) %>%
+  mutate(avg_nmol = replace_na(avg_nmol, 0)) %>%
+  mutate(id = paste(date, treatment))
+  # mutate(avg_nmol = as.character(avg_nmol))
+
+quant_mat <- quant_nmds %>%
+  group_by(metabolite) %>%
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  column_to_rownames("id") %>%
+  data.matrix()
+
+mdsout <- quant_mat %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data <- metadataframe %>% 
+  ungroup() %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  filter(str_detect(filename, "Smp")) %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
+  mutate(id = paste(date, treatment)) %>% 
+  select(-c("replicate", "filename"))
+
+mdsout$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, shape = factor(date)), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend",labels = c("Redfield Ratio - High N:P", "No N + Low P", 
+                                                                        "Low N:P, Low Dose", "T0 - Before Treatments", 
+                                                                        "Low N:P, High Dose", "No N + High P", "High P, No Fe", 
+                                                                        "Redfield Ratio - Low N:P", "Control")) +
+  theme_bw() + 
+  ggtitle("Statistical Variation of Metabolite Concentration (nM) in PERI-DICE")
+
+
+plot(mdsout)
+```
+add neg metabs
+
+ratio of nutrients is more important on short term (1-2 weeks) whereas amount added (high dose) is more important on long term scale (3-4 weeks)
+
+```{r}
+quant_nmds_r <- data_vis %>% 
+  filter(str_detect(replicate, "RH|RL|LH|LL")) %>% 
+  arrange(desc(nmol_in_enviro)) %>% 
+  group_by(metabolite, replicate) %>% 
+  slice(1) %>% 
+  group_by(metabolite, treatment, date) %>% 
+  summarise(avg_nmol = mean(nmol_in_enviro)) %>% 
+  ungroup() %>% 
+  # complete(metabolite, date, treatment) %>% 
+  # mutate(avg_nmol = replace_na(avg_nmol, 0)) %>% 
+  mutate(id = paste(date, treatment))
+  # mutate(avg_nmol = as.character(avg_nmol))
+
+quant_mat_r <- quant_nmds_r %>%
+  group_by(metabolite) %>%
+  mutate(norm_conc = rank(avg_nmol)) %>%
+  select(metabolite, norm_conc, id) %>% 
+  pivot_wider(names_from = "metabolite", values_from = "norm_conc") %>%
+  column_to_rownames("id") %>%
+  data.matrix()
+
+mdsout_r <- quant_mat_r %>%
+  metaMDS(k = 2, autotransform = FALSE)
+
+mds_data_r <- metadataframe %>% 
+  ungroup() %>% 
+  mutate(timepoint = str_replace_all(timepoint, "July", "-7-22")) %>% 
+  mutate(timepoint = str_replace_all(timepoint, "June", "-6-22")) %>% 
+  mutate(date = as.Date(timepoint, format = "%d-%m-%y")) %>% 
+  filter(str_detect(filename, "Smp")) %>% 
+  mutate(treatment = str_remove(treatment, "\\d")) %>% 
+  mutate(id = paste(date, treatment)) %>% 
+  select(-c("replicate", "filename"))
+
+mdsout_r$points %>%
+  as.data.frame() %>%
+  rownames_to_column("id") %>%
+  left_join(mds_data_r) %>%
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x=MDS1, y=MDS2, color=col_id, shape = factor(date)), size=4) +
+  scale_color_identity(name = "treatment", guide = "legend",labels = c("Redfield Ratio - High Dose",
+                                                                       "Low N:P, Low Dose",
+                                                                       "Low N:P, High Dose",
+                                                                        "Redfield Ratio - Low Dose",
+                                                                       "")) +
+  theme_bw() + 
+  ggtitle("Statistical Variation of Metabolite Concentration (nM) in PERI-DICE")
+```
+
+
+# Volcano plots
+```{r}
+
+foldchange <- data.frame(metabolite = character(), date = character(), treatment = character(), pval = numeric(), fc = numeric())
+
+data_vis_fc <- data_vis %>% 
+  filter(!str_detect(replicate, "Tote"))
+
+for (metabolite in unique(data_vis_fc$metabolite)) {
+  for (group in unique(data_vis_fc$treatment)) {
+    if (group != 'C') {
+      temp <- data_vis_fc[data_vis_fc$metabolite == metabolite,]
+      
+      pval <- t.test(temp[temp$treatment == 'C',]$nmol_in_enviro,
+                     temp[temp$treatment == group,]$nmol_in_enviro)$p.value
+      fc <- (log2(mean(temp[temp$treatment == group,]$nmol_in_enviro) + 1) - 
+               log2(mean(temp[temp$treatment == 'C',]$nmol_in_enviro) + 1))
+      
+      new_row <- data.frame(metabolite = metabolite, treatment = group, pval = pval, fc = fc)
+      foldchange <- rbind(foldchange, new_row)
+    }
+  }
+}
+
+
+foldchange %>%
+  mutate(pval = -log10(pval)) %>% 
+  mutate(col_id=case_when(
+    treatment=="C"~"plum2",
+    treatment=="ZL"~"darkslategray2",
+    treatment=="ZH"~"lightseagreen",
+    treatment=="LL"~"gold",
+    treatment=="LH"~"lightcoral",
+    treatment=="RL"~"orange",
+    treatment=="RH"~"brown3",
+    treatment=="ZF"~"mediumpurple3", 
+    TRUE~"grey50"
+  )) %>%
+  ggplot() +
+  geom_point(aes(x = fc, y = pval, color = col_id)) +
+  scale_color_identity(name = "treatment", guide = "legend",labels = c("Redfield Ratio - High N:P", "No N + Low P", 
+                                                                        "Low N:P, Low Dose", "T0 - No Added Nutrients", 
+                                                                        "Low N:P, High Dose", "No N + High P", "High P, No Fe", 
+                                                                        "Redfield Ratio - Low N:P", "Tote")) +
+  theme_bw() +
+  xlim(-6, 6) + 
+  xlab("Log2(Fold-Change)") + 
+  ylab("-Log10(p-value)") + 
+  xlim(-2, 3) + 
+  ggtitle("fold change calculated with respect to Control")
+```
+

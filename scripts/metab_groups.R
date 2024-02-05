@@ -36,7 +36,7 @@ metab_groups <- read.csv(
 peri_groups <- peri %>% 
   left_join(metab_groups) %>% 
   group_by(metab_type, treatment, date) %>% 
-  mutate(nmol_group = mean(nmol)) %>% 
+  mutate(nmol_group = mean(nmol_per_bulk)) %>% 
   distinct(nmol_group, .keep_all = TRUE)
 
 groups_of_int <- data.frame(metab_type = c("Amino Acid", "Amino Acid - degraded", "Amino Acid derivative", 
@@ -44,7 +44,7 @@ groups_of_int <- data.frame(metab_type = c("Amino Acid", "Amino Acid - degraded"
                                            "Nucleic Acid", "Nucleoside", "Nucleoside derivative", "Osmolyte", 
                                            "Sulfur", "Urea cycle"))
 
-nb.cols <- 10
+nb.cols <- 20
 mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
 
 sulf <- metab_groups %>% 
@@ -78,7 +78,7 @@ peri_groups %>%
   facet_wrap(~date)
 
 peri_groups %>% 
-  filter(metab_type == "Sulfur") %>% 
+  # filter(metab_type == "Sulfur") %>% 
   mutate(ratio = str_extract(treatment, "H$|L$|C|Tote")) %>% 
   mutate(rate = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
   # filter(metab_type %in% groups_of_int$metab_type) %>% 
@@ -86,11 +86,11 @@ peri_groups %>%
   filter(str_detect(filename, "Tote|30June|27July")) %>% 
   filter(treatment != "ZF") %>% 
   ggplot() + 
-  geom_col(aes(x = factor(treatment, 
-                          levels = c("Tote", "C", "ZL", "ZH", "LL", "LH", "RL", "RH")), 
-               y = nmol_per_bulk, fill = metabolite), position = "fill") +
+  geom_col(aes(x = factor(date), 
+               y = nmol_per_bulk, fill = metab_type), position = "fill") +
   scale_fill_manual(values = mycolors) +
-  facet_wrap(~date)
+  facet_wrap(~factor(treatment, 
+                     levels = c("Tote", "C", "ZL", "ZH", "LL", "LH", "RL", "RH")))
 
 # sulfur metabs accumulating in RL because euks are blooming - make sulfur metabs
  
