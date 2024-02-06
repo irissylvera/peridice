@@ -36,15 +36,17 @@ metab_groups <- read.csv(
 peri_groups <- peri %>% 
   left_join(metab_groups) %>% 
   group_by(metab_type, treatment, date) %>% 
-  mutate(nmol_group = mean(nmol_per_bulk)) %>% 
-  distinct(nmol_group, .keep_all = TRUE)
+  mutate(nmol_group = mean(nmol_per_bulk)) 
+
+# %>% 
+#   distinct(nmol_group, .keep_all = TRUE)
 
 groups_of_int <- data.frame(metab_type = c("Amino Acid", "Amino Acid - degraded", "Amino Acid derivative", 
                                            "Amino Acid synthesis",
                                            "Nucleic Acid", "Nucleoside", "Nucleoside derivative", "Osmolyte", 
                                            "Sulfur", "Urea cycle"))
 
-nb.cols <- 20
+nb.cols <- 21
 mycolors <- colorRampPalette(brewer.pal(8, "Paired"))(nb.cols)
 
 sulf <- metab_groups %>% 
@@ -83,14 +85,34 @@ peri_groups %>%
   mutate(rate = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
   # filter(metab_type %in% groups_of_int$metab_type) %>% 
   # filter(treatment == "RH") %>% 
-  filter(str_detect(filename, "Tote|30June|27July")) %>% 
+  # filter(str_detect(filename, "Tote|30June|27July")) %>% 
   filter(treatment != "ZF") %>% 
   ggplot() + 
   geom_col(aes(x = factor(date), 
-               y = nmol_per_bulk, fill = metab_type), position = "fill") +
+               y = nmol_per_bulk, fill = metab_type), position = "stack") +
   scale_fill_manual(values = mycolors) +
   facet_wrap(~factor(treatment, 
                      levels = c("Tote", "C", "ZL", "ZH", "LL", "LH", "RL", "RH")))
 
 # sulfur metabs accumulating in RL because euks are blooming - make sulfur metabs
- 
+
+
+peri_groups %>% 
+  filter(!str_detect(filename, "Tote")) %>% 
+  mutate(rate = str_extract(treatment, "H$|L$|C|Tote")) %>% 
+  mutate(ratio = str_extract(treatment, "R|L|Z|C|Tote")) %>% 
+  group_by(treatment, date) %>% 
+  mutate(nmol = sum(bulk_metab)) %>% 
+  # filter(treatment == "RH") %>% 
+  # filter(str_detect(filename, "Tote|30June|27July")) %>% 
+  filter(treatment != "ZF") %>% 
+  ggplot() + 
+  geom_col(aes(x = factor(date), 
+               y = nmol, fill = treatment)) +
+  # scale_fill_manual(values = mycolors) +
+  facet_grid(~ratio~rate)
+  
+
+  
+  
+  

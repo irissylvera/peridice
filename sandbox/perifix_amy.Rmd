@@ -428,7 +428,7 @@ adj_bmis_data <- sample_long %>%
   mutate(adj_peak_area = num_area/(int_area/avg_is_area)) %>% 
   full_join(peak_list) %>% 
   select(replicate, metabolite, bmis, adj_peak_area) %>% 
-  mutate(replicate = str_remove(replicate, "230616_"))
+  mutate(replicate = str_remove(replicate, "230213_"))
  
 rfs_mix1 <- peak_list %>% 
   mutate(replicate = str_remove(replicate, "230213_")) %>% 
@@ -475,7 +475,7 @@ rfs <- rfs_mix1 %>%
   rbind(rfs_mix2)
 
 quant_data <- peak_list %>% 
-  mutate(replicate = str_remove(replicate, "230213_")) %>% 
+  # mutate(replicate = str_remove(replicate, "230213_")) %>% 
   left_join(adj_bmis_data) %>% 
   mutate(real_area = ifelse(is.na(adj_peak_area), num_area, adj_peak_area)) %>% 
   select(metabolite, replicate, bmis, real_area) %>% 
@@ -490,9 +490,16 @@ quant_data <- peak_list %>%
   filter(!metabolite %in% ingalls_standards$internal_standards) %>% 
   filter(metabolite != "DL-Histidine, 15N") %>% 
   filter(nM > 0) %>% 
-  filter(!str_detect(replicate, "Std")) %>% 
-  filter(metabolite != "Betonicine") %>% 
+  filter(!str_detect(replicate, "Std")) %>%
+  filter(metabolite != "Betonicine") %>%
   filter(metabolite != "Hydroxyisoleucine")
+
+iso <- isologs_quant %>% 
+  select(metabolite, nM = nmol_enviro, uM = umol_enviro) 
+
+quant_data <- quant_data %>% 
+  full_join(iso) %>% 
+  filter(!str_detect(metabolite, "L-Valine"))
   
 quant_data %>%
   group_by(metabolite) %>%

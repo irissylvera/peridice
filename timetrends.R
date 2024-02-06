@@ -5,6 +5,16 @@ peri <- read_csv("PERIDICE_metabolite_data.csv") %>%
   mutate(bulk_metab = sum(nmol)) %>% 
   mutate(nmol_per_bulk = nmol/bulk_metab) 
 
+tote_magic_df <- peri %>%
+  ungroup() %>% 
+  filter(treatment=="Tote") %>%
+  select(-treatment) %>%
+  expand_grid(treatment=c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH"))
+
+peri <- peri %>% 
+  filter(treatment != "Tote") %>% 
+  rbind(tote_magic_df)
+
 metab_groups <- read.csv(
   "https://raw.githubusercontent.com/IngallsLabUW/Ingalls_Standards/master/Ingalls_Lab_Standards.csv",
   stringsAsFactors = FALSE, header = TRUE) %>% 
@@ -23,11 +33,11 @@ peri_groups <- peri %>%
 peri_groups %>% 
   filter(str_detect(metab_type, "Amino Acid|Osmolyte|Sugar|Sulfur|Urea")) %>% 
   ggplot() + 
-  geom_col(aes(x = factor(treatment, levels = c("Tote", "C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+  geom_col(aes(x = factor(date), 
                y = nmol_group, 
                fill = metab_type), 
            position = "fill") + 
-  facet_wrap(~date)
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))
 
 aas <- metab_groups %>% 
   filter(str_detect(metab_type, "Amino Acid"))
@@ -36,12 +46,14 @@ aas <- metab_groups %>%
 # it's hydroxyisoleucine :/
 peri %>% 
   filter(metabolite %in% aas$metabolite) %>% 
+  filter(metabolite != "Hydroxyisoleucine") %>% 
   ggplot() + 
-  geom_col(aes(x = factor(treatment, levels = c("Tote", "C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+  geom_col(aes(x = factor(date), 
                y = nmol_per_bulk, 
                fill = metabolite), 
-           position = "fill") + 
-  facet_wrap(~date)
+           position = "stack") + 
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+             scales = "free")
 
 sugar <- metab_groups %>% 
   filter(str_detect(metab_type, "Sugar"))
@@ -49,12 +61,11 @@ sugar <- metab_groups %>%
 peri %>% 
   filter(metabolite %in% sugar$metabolite) %>% 
   ggplot() + 
-  geom_col(aes(x = factor(treatment, levels = c("Tote", "C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+  geom_col(aes(x = factor(date), 
                y = nmol_per_bulk, 
-               fill = metabolite, color = factor(triplicate)), 
+               fill = metabolite), 
            position = "stack") + 
-  facet_wrap(~date)
-
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))
 # ectoine
 
 # Nucleoside, Organic Acid (- nitrogenous), Osmolyte, Sugar, Sulfur, Urea cycle
@@ -63,10 +74,24 @@ nucleo <- metab_groups %>%
   filter(str_detect(metab_type, "Nucleoside"))
 
 peri %>% 
-  filter(metabolite %in% nucleo$metabolite) %>% 
+  filter(metabolite %in% nucleo$metabolite) %>%  
   ggplot() + 
-  geom_col(aes(x = factor(treatment, levels = c("Tote", "C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+  geom_col(aes(x = factor(date), 
+               y = nmol_per_bulk, 
+               fill = metabolite), 
+           position = "fill") + 
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))
+
+sulfur <- metab_groups %>% 
+  filter(str_detect(metab_type, "Sulfur"))
+
+peri %>% 
+  filter(metabolite %in% sulfur$metabolite) %>%  
+  ggplot() + 
+  geom_col(aes(x = factor(date), 
                y = nmol_per_bulk, 
                fill = metabolite), 
            position = "stack") + 
-  facet_wrap(~date)
+  facet_wrap(~factor(treatment, levels = c("C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")))
+
+# 

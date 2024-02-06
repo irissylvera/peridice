@@ -89,3 +89,16 @@ peri_nitro %>%
   theme(legend.position = "none") + 
   # ggtitle("Glycerophosphocholine") + 
   theme_bw()
+
+peri %>% 
+  filter(str_detect(metabolite, "Choline|Glycerophosphocholine")) %>% 
+  filter(!str_detect(treatment, "ZF")) %>% 
+  ggplot() + 
+  geom_col(aes(x = factor(treatment, levels = c("Tote", "C", "ZL", "ZF", "ZH", "LL", "LH", "RL", "RH")), 
+                   y = nmol_per_bulk, fill = metabolite), position = "fill") + 
+  facet_grid(~date, scales = "free") + 
+  theme(axis.text.x=element_text(angle = 90, vjust = 0.5)) + 
+  theme(legend.position = "none") + 
+  # ggtitle("Glycerophosphocholine") + 
+  theme_bw()
+# Relative amount of choline 
